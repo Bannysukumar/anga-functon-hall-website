@@ -69,7 +69,23 @@ export const DEFAULT_SETTINGS = {
   maxBookingWindowDays: 90,
   razorpayKeyId: "",
   razorpayDisplayName: "Anga Function Hall",
-  heroBanners: [],
+  heroBanners: [
+    {
+      imageUrl: "/image.jpeg",
+      title: "Home Banner 1",
+      subtitle: "",
+    },
+    {
+      imageUrl: "/image1.jpeg",
+      title: "Home Banner 2",
+      subtitle: "",
+    },
+    {
+      imageUrl: "/image2.jpeg",
+      title: "Home Banner 3",
+      subtitle: "",
+    },
+  ],
   featuredListingIds: [],
 }
 

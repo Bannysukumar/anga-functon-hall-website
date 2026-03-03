@@ -15,7 +15,11 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
-import { getSiteLogoPath, uploadImage } from "@/lib/firebase-storage"
+import {
+  getBannerImagePath,
+  getSiteLogoPath,
+  uploadImage,
+} from "@/lib/firebase-storage"
 import { toast } from "sonner"
 import { useAuth } from "@/lib/hooks/use-auth"
 
@@ -24,6 +28,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  const [uploadingBannerIndex, setUploadingBannerIndex] = useState<number | null>(null)
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
   const [secureSettings, setSecureSettings] = useState<SecureSettings>({
     razorpaySecretKey: "",
@@ -86,6 +91,51 @@ export default function SettingsPage() {
     }
   }
 
+  function getHomeBannerUrls(items: SiteSettings["heroBanners"]) {
+    const fallback = DEFAULT_SETTINGS.heroBanners
+    const normalized = [...fallback].map((item, index) => {
+      const current = items?.[index]
+      return {
+        ...item,
+        imageUrl: current?.imageUrl || item.imageUrl,
+      }
+    })
+    return normalized
+  }
+
+  async function handleBannerUpload(
+    e: React.ChangeEvent<HTMLInputElement>,
+    index: number
+  ) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file.")
+      return
+    }
+    setUploadingBannerIndex(index)
+    try {
+      const path = getBannerImagePath(file.name)
+      const imageUrl = await uploadImage(file, path)
+      setSettings((prev) => {
+        const nextBanners = getHomeBannerUrls(prev.heroBanners)
+        nextBanners[index] = {
+          ...nextBanners[index],
+          imageUrl,
+        }
+        return { ...prev, heroBanners: nextBanners }
+      })
+      toast.success(`Home image ${index + 1} uploaded. Click Save Settings.`)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to upload home image."
+      toast.error(message)
+    } finally {
+      setUploadingBannerIndex(null)
+      e.target.value = ""
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -108,7 +158,7 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className="text-base">Branding</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+          <CardContent className="flex flex-col gap-6">
             <div className="flex items-center gap-4">
               {settings.siteLogoUrl ? (
                 <img
@@ -133,6 +183,40 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   Upload a square logo. After upload, click Save Settings.
                 </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <div>
+                <Label className="text-sm font-medium">Home Page Images</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Upload 3 images shown on the Home page.
+                </p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                {getHomeBannerUrls(settings.heroBanners).map((banner, index) => (
+                  <div
+                    key={`home-banner-${index}`}
+                    className="flex flex-col gap-2 rounded-lg border p-3"
+                  >
+                    <img
+                      src={banner.imageUrl}
+                      alt={`Home image ${index + 1}`}
+                      className="h-32 w-full rounded object-cover"
+                    />
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleBannerUpload(e, index)}
+                      disabled={uploadingBannerIndex === index}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {uploadingBannerIndex === index
+                        ? "Uploading..."
+                        : `Home image ${index + 1}`}
+                    </p>
+                  </div>
+                ))}
               </div>
             </div>
           </CardContent>

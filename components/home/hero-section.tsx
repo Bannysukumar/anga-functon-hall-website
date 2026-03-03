@@ -1,10 +1,46 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Search, ArrowRight, Shield, Clock, CreditCard } from "lucide-react"
+import { getSettings } from "@/lib/firebase-db"
+import { DEFAULT_SETTINGS } from "@/lib/constants"
 
 export function HeroSection() {
+  const [homeImages, setHomeImages] = useState<string[]>(
+    DEFAULT_SETTINGS.heroBanners.map((banner) => banner.imageUrl)
+  )
+
+  useEffect(() => {
+    let mounted = true
+    getSettings()
+      .then((settings) => {
+        if (!mounted) return
+        const banners =
+          settings.heroBanners?.slice(0, 3).map((banner) => banner.imageUrl) || []
+        setHomeImages(
+          banners.length > 0
+            ? banners
+            : DEFAULT_SETTINGS.heroBanners.map((banner) => banner.imageUrl)
+        )
+      })
+      .catch(() => {
+        if (mounted) {
+          setHomeImages(DEFAULT_SETTINGS.heroBanners.map((banner) => banner.imageUrl))
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const visibleImages = useMemo(
+    () => homeImages.filter((url) => typeof url === "string" && url.trim().length > 0),
+    [homeImages]
+  )
+
   return (
     <section className="relative overflow-hidden bg-gradient-to-br from-primary/5 via-background to-accent/5">
       <div className="mx-auto max-w-7xl px-4 py-20 lg:px-8 lg:py-28">
@@ -35,6 +71,40 @@ export function HeroSection() {
               </Button>
             </Link>
           </div>
+
+          {visibleImages.length > 0 && (
+            <div className="w-full">
+              <div className="mb-3 text-left">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Anga Function Hall
+                </p>
+                <h3 className="text-lg font-semibold text-foreground">
+                  Our Venue Highlights
+                </h3>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {visibleImages.map((imageUrl, index) => (
+                  <div
+                    key={`${imageUrl}-${index}`}
+                    className="overflow-hidden rounded-xl border bg-muted/40"
+                  >
+                    <div className="flex aspect-[4/3] items-center justify-center bg-background p-2">
+                      <img
+                        src={imageUrl}
+                        alt={`Anga Function Hall image ${index + 1}`}
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
+                    <div className="border-t bg-background px-3 py-2 text-left">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {`Venue View ${index + 1}`}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="mt-8 grid gap-6 sm:grid-cols-3">
             <div className="flex flex-col items-center gap-2">
