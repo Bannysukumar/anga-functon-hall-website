@@ -72,7 +72,14 @@ export interface Listing {
 // =====================
 // Booking
 // =====================
-export type BookingStatus = "pending" | "confirmed" | "completed" | "cancelled"
+export type BookingStatus =
+  | "pending"
+  | "confirmed"
+  | "checked_in"
+  | "checked_out"
+  | "completed"
+  | "cancelled"
+  | "no_show"
 export type PaymentStatus =
   | "pending"
   | "advance_paid"
@@ -126,6 +133,15 @@ export interface Booking {
   }
   paymentVerified?: boolean
   emailStatus?: "pending" | "sent" | "failed"
+  scheduledCheckInAt?: Timestamp | null
+  scheduledCheckOutAt?: Timestamp | null
+  checkInAt?: Timestamp | null
+  checkOutAt?: Timestamp | null
+  checkedInBy?: string | null
+  checkedOutBy?: string | null
+  checkoutMethod?: "USER" | "ADMIN" | "AUTO" | null
+  checkoutNotes?: string
+  checkoutEmailStatus?: "pending" | "sent" | "failed"
   cancelledAt: Timestamp | null
   refundAmount: number
   refundStatus: "none" | "requested" | "approved" | "processed"
@@ -255,6 +271,8 @@ export interface SiteSettings {
   featuredListingIds: string[]
   bookingEmailSubjectTemplate?: string
   bookingEmailHtmlTemplate?: string
+  checkoutEmailSubjectTemplate?: string
+  checkoutEmailHtmlTemplate?: string
 }
 
 export interface SecureSettings {

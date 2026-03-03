@@ -419,6 +419,33 @@ export default function SettingsPage() {
                 className="font-mono text-xs"
               />
             </div>
+            <div className="flex flex-col gap-2">
+              <Label>Checkout Subject</Label>
+              <Input
+                value={settings.checkoutEmailSubjectTemplate || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    checkoutEmailSubjectTemplate: e.target.value,
+                  })
+                }
+                placeholder="Checkout Confirmed - {bookingId}"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Checkout HTML</Label>
+              <Textarea
+                rows={6}
+                value={settings.checkoutEmailHtmlTemplate || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    checkoutEmailHtmlTemplate: e.target.value,
+                  })
+                }
+                className="font-mono text-xs"
+              />
+            </div>
             <div className="flex flex-wrap gap-2">
               {placeholderKeys.map((key) => (
                 <span
@@ -441,6 +468,10 @@ export default function SettingsPage() {
                       DEFAULT_SETTINGS.bookingEmailSubjectTemplate || "",
                     bookingEmailHtmlTemplate:
                       DEFAULT_SETTINGS.bookingEmailHtmlTemplate || "",
+                    checkoutEmailSubjectTemplate:
+                      DEFAULT_SETTINGS.checkoutEmailSubjectTemplate || "",
+                    checkoutEmailHtmlTemplate:
+                      DEFAULT_SETTINGS.checkoutEmailHtmlTemplate || "",
                   })
                 }
               >

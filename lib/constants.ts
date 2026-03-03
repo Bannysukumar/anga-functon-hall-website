@@ -30,8 +30,11 @@ export const LISTING_TYPES: ListingType[] = [
 export const BOOKING_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   confirmed: "Confirmed",
+  checked_in: "Checked In",
+  checked_out: "Checked Out",
   completed: "Completed",
   cancelled: "Cancelled",
+  no_show: "No Show",
 }
 
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -45,8 +48,11 @@ export const PAYMENT_STATUS_LABELS: Record<string, string> = {
 export const BOOKING_STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
   confirmed: "bg-emerald-100 text-emerald-800",
+  checked_in: "bg-indigo-100 text-indigo-800",
+  checked_out: "bg-slate-100 text-slate-800",
   completed: "bg-sky-100 text-sky-800",
   cancelled: "bg-red-100 text-red-800",
+  no_show: "bg-zinc-100 text-zinc-800",
 }
 
 export const PAYMENT_STATUS_COLORS: Record<string, string> = {
@@ -90,6 +96,9 @@ export const DEFAULT_SETTINGS = {
   bookingEmailSubjectTemplate: "Booking Confirmed - {invoiceNumber}",
   bookingEmailHtmlTemplate:
     "<p>Hello {userName},</p><p>Your booking is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice Number:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Date:</strong> {dates}</p><p><strong>Slot:</strong> {slots}</p><p><strong>Allocated:</strong> {allocatedUnits}</p><p><strong>Amount Paid:</strong> INR {amountPaid}</p><p><a href='{invoiceLink}'>Download Invoice</a></p>",
+  checkoutEmailSubjectTemplate: "Checkout Confirmed - {bookingId}",
+  checkoutEmailHtmlTemplate:
+    "<p>Hello {userName},</p><p>Your checkout is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Allocated:</strong> {allocation}</p><p><strong>Check-out time:</strong> {checkOutAt}</p><p>Thank you for choosing Anga Function Hall.</p>",
 }
 
 export const AMENITY_OPTIONS = [

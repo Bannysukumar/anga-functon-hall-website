@@ -48,7 +48,12 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/hooks/use-auth"
-import { resendBookingConfirmationEmail } from "@/lib/booking-functions"
+import {
+  resendBookingConfirmationEmail,
+  adminCheckIn,
+  adminCheckOut,
+  resendCheckoutEmail,
+} from "@/lib/booking-functions"
 
 export default function AdminBookingsPage() {
   const searchParams = useSearchParams()
@@ -237,6 +242,8 @@ export default function AdminBookingsPage() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="checked_in">Checked In</SelectItem>
+                <SelectItem value="checked_out">Checked Out</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
@@ -423,6 +430,72 @@ export default function AdminBookingsPage() {
                                 >
                                   <CheckCircle className="mr-2 h-4 w-4" />
                                   Mark Fully Paid
+                                </DropdownMenuItem>
+                              )}
+                              {booking.status === "confirmed" && (
+                                <DropdownMenuItem
+                                  onClick={async () => {
+                                    try {
+                                      await adminCheckIn(booking.id)
+                                      toast({ title: "Check-in marked" })
+                                      loadBookings()
+                                    } catch {
+                                      toast({
+                                        title: "Error",
+                                        description: "Failed to mark check-in.",
+                                        variant: "destructive",
+                                      })
+                                    }
+                                  }}
+                                  disabled={!isAdminUser}
+                                >
+                                  <CheckCircle className="mr-2 h-4 w-4" />
+                                  Mark Check-In
+                                </DropdownMenuItem>
+                              )}
+                              {(booking.status === "checked_in" || booking.status === "confirmed") && (
+                                <DropdownMenuItem
+                                  onClick={async () => {
+                                    try {
+                                      await adminCheckOut(booking.id, "Admin checkout")
+                                      toast({ title: "Check-out marked" })
+                                      loadBookings()
+                                    } catch {
+                                      toast({
+                                        title: "Error",
+                                        description: "Failed to mark check-out.",
+                                        variant: "destructive",
+                                      })
+                                    }
+                                  }}
+                                  disabled={!isAdminUser}
+                                >
+                                  <CheckCircle className="mr-2 h-4 w-4" />
+                                  Mark Check-Out
+                                </DropdownMenuItem>
+                              )}
+                              {booking.status === "checked_out" && (
+                                <DropdownMenuItem
+                                  onClick={async () => {
+                                    try {
+                                      const result = await resendCheckoutEmail(booking.id)
+                                      toast({
+                                        title: "Checkout email status",
+                                        description: result.checkoutEmailStatus,
+                                      })
+                                      loadBookings()
+                                    } catch {
+                                      toast({
+                                        title: "Error",
+                                        description: "Failed to resend checkout email.",
+                                        variant: "destructive",
+                                      })
+                                    }
+                                  }}
+                                  disabled={!isAdminUser}
+                                >
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                  Resend Checkout Email
                                 </DropdownMenuItem>
                               )}
                               {booking.status === "confirmed" && (

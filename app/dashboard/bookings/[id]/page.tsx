@@ -37,9 +37,11 @@ import {
   Receipt,
   Clock,
   Hash,
+  CheckCircle,
 } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
+import { userCheckOut } from "@/lib/booking-functions"
 
 export default function BookingDetailPage() {
   const params = useParams()
@@ -50,6 +52,7 @@ export default function BookingDetailPage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
+  const [checkingOut, setCheckingOut] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -137,6 +140,32 @@ export default function BookingDetailPage() {
 
   const canCancel =
     booking.status === "pending" || booking.status === "confirmed"
+  const canCheckout = booking.status === "confirmed" || booking.status === "checked_in"
+
+  const autoCheckoutAt = booking.scheduledCheckOutAt?.toDate
+    ? booking.scheduledCheckOutAt.toDate().toLocaleString("en-IN")
+    : null
+
+  const handleUserCheckout = async () => {
+    setCheckingOut(true)
+    try {
+      await userCheckOut(booking.id)
+      const updated = await getBooking(booking.id)
+      if (updated) setBooking(updated)
+      toast({
+        title: "Checked out",
+        description: "Checkout completed successfully.",
+      })
+    } catch {
+      toast({
+        title: "Error",
+        description: "Checkout is not allowed right now.",
+        variant: "destructive",
+      })
+    } finally {
+      setCheckingOut(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -216,6 +245,15 @@ export default function BookingDetailPage() {
                   <div>
                     <p className="text-xs text-muted-foreground">Slot</p>
                     <p className="text-sm font-medium text-foreground">{booking.slotName}</p>
+                  </div>
+                </div>
+              )}
+              {autoCheckoutAt && (
+                <div className="flex items-start gap-3 sm:col-span-2">
+                  <Clock className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Auto checkout at</p>
+                    <p className="text-sm font-medium text-foreground">{autoCheckoutAt}</p>
                   </div>
                 </div>
               )}
@@ -371,6 +409,20 @@ export default function BookingDetailPage() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+          )}
+          {canCheckout && (
+            <Button
+              onClick={handleUserCheckout}
+              disabled={checkingOut}
+              className="w-full"
+            >
+              {checkingOut ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="mr-2 h-4 w-4" />
+              )}
+              Check Out
+            </Button>
           )}
         </div>
       </div>

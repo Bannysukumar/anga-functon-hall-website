@@ -36,10 +36,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getInvoiceDownloadUrl = exports.resendBookingConfirmationEmail = exports.processInvoiceCreated = exports.verifyPaymentAndConfirmBooking = exports.createSelfAttendance = void 0;
+exports.getInvoiceDownloadUrl = exports.scheduledAutoCheckoutJob = exports.resendCheckoutEmail = exports.userCheckOut = exports.adminCheckOut = exports.adminCheckIn = exports.resendBookingConfirmationEmail = exports.processInvoiceCreated = exports.verifyPaymentAndConfirmBooking = exports.createSelfAttendance = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
 const logger = __importStar(require("firebase-functions/logger"));
 const node_crypto_1 = require("node:crypto");
 const pdfkit_1 = __importDefault(require("pdfkit"));
@@ -256,6 +257,23 @@ function isSlotBased(listingType) {
         "dining_hall",
         "local_tour",
     ].includes(listingType);
+}
+function buildCheckInOutSchedule(listingType, checkInDate) {
+    const start = new Date(`${checkInDate}T12:00:00`);
+    const end = new Date(`${checkInDate}T11:00:00`);
+    if (isSlotBased(listingType)) {
+        const slotStart = new Date(`${checkInDate}T09:00:00`);
+        const slotEnd = new Date(`${checkInDate}T23:59:00`);
+        return {
+            scheduledCheckInAt: admin.firestore.Timestamp.fromDate(slotStart),
+            scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(slotEnd),
+        };
+    }
+    end.setDate(end.getDate() + 1);
+    return {
+        scheduledCheckInAt: admin.firestore.Timestamp.fromDate(start),
+        scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(end),
+    };
 }
 async function allocateResourcesInTransaction(transaction, params) {
     const { bookingRef, listingRef, listing, dateKey, slotId, unitsBooked, userId } = params;
@@ -523,6 +541,123 @@ async function sendConfirmationEmail(invoiceData, bookingData, forceResend = fal
     });
     return "failed";
 }
+async function sendCheckoutEmail(bookingData, invoiceData) {
+    const runtimeConfig = await getRuntimeSecureConfig();
+    const smtpTransport = await getSmtpTransportFromConfig(runtimeConfig);
+    if (!smtpTransport)
+        return "pending";
+    const toEmail = String(invoiceData.customer?.email || "");
+    if (!toEmail)
+        return "failed";
+    const settingsSnap = await db.collection("settings").doc("global").get();
+    const settings = (settingsSnap.data() || {});
+    const defaultSubject = "Checkout Confirmed - {bookingId}";
+    const defaultBody = "<p>Hello {userName},</p><p>Your checkout is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Allocated:</strong> {allocation}</p><p><strong>Check-out time:</strong> {checkOutAt}</p><p>Thank you for staying with us.</p>";
+    const templateValues = {
+        userName: String(invoiceData.customer?.name || "Guest"),
+        bookingId: String(bookingData.id || ""),
+        invoiceNumber: String(bookingData.invoiceNumber || invoiceData.invoiceNumber || ""),
+        listingName: String(bookingData.listingTitle || ""),
+        allocation: String((bookingData.allocatedResource?.labels || []).join(", ")),
+        checkOutAt: new Date().toLocaleString("en-IN"),
+    };
+    const subject = renderTemplate(String(settings.checkoutEmailSubjectTemplate || defaultSubject), templateValues);
+    const html = renderTemplate(String(settings.checkoutEmailHtmlTemplate || defaultBody), templateValues);
+    try {
+        const response = await smtpTransport.sendMail({
+            from: `"${runtimeConfig.smtpFromName || "Anga Function Hall"}" <${runtimeConfig.smtpFromEmail || runtimeConfig.smtpUser}>`,
+            to: toEmail,
+            subject,
+            html,
+        });
+        await writeEmailLog({
+            bookingId: String(bookingData.id || ""),
+            invoiceId: String(bookingData.invoiceId || ""),
+            toEmail,
+            status: "SENT",
+            messageId: String(response.messageId || ""),
+        });
+        return "sent";
+    }
+    catch (error) {
+        await writeEmailLog({
+            bookingId: String(bookingData.id || ""),
+            invoiceId: String(bookingData.invoiceId || ""),
+            toEmail,
+            status: "FAILED",
+            error: error instanceof Error ? error.message : "Checkout email failed",
+        });
+        return "failed";
+    }
+}
+async function finalizeCheckout(params) {
+    const { bookingId, actorId, method, note } = params;
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingSnap = await bookingRef.get();
+    if (!bookingSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Booking not found.");
+    }
+    const bookingData = { id: bookingSnap.id, ...(bookingSnap.data() || {}) };
+    if (["checked_out", "cancelled", "no_show"].includes(String(bookingData.status || ""))) {
+        return { ok: true, idempotent: true, bookingId, status: bookingData.status };
+    }
+    if (!["confirmed", "checked_in"].includes(String(bookingData.status || ""))) {
+        throw new https_1.HttpsError("failed-precondition", "Booking cannot be checked out in current state.");
+    }
+    await db.runTransaction(async (transaction) => {
+        const latestBooking = await transaction.get(bookingRef);
+        const latest = latestBooking.data() || {};
+        if (["checked_out", "cancelled", "no_show"].includes(String(latest.status || ""))) {
+            return;
+        }
+        transaction.set(bookingRef, {
+            status: "checked_out",
+            checkOutAt: admin.firestore.FieldValue.serverTimestamp(),
+            checkedOutBy: actorId,
+            checkoutMethod: method,
+            checkoutNotes: note || "",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        const reservationsQuery = db.collection("reservations").where("bookingId", "==", bookingId);
+        const reservationsSnap = await transaction.get(reservationsQuery);
+        reservationsSnap.forEach((reservationDoc) => {
+            transaction.set(reservationDoc.ref, {
+                status: "COMPLETED",
+                completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+        });
+        const checkEventRef = db.collection("checkEvents").doc();
+        transaction.set(checkEventRef, {
+            bookingId,
+            type: "CHECKOUT",
+            method,
+            actorId,
+            note: note || "",
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        const auditRef = db.collection("auditLogs").doc();
+        transaction.set(auditRef, {
+            entity: "booking",
+            entityId: bookingId,
+            action: "CHECKOUT",
+            message: `Booking checked out (${method})`,
+            payload: { method, note: note || "" },
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdBy: actorId,
+        });
+    });
+    if (bookingData.invoiceId) {
+        const invoiceSnap = await db.collection("invoices").doc(String(bookingData.invoiceId)).get();
+        if (invoiceSnap.exists) {
+            const checkoutEmailStatus = await sendCheckoutEmail(bookingData, { id: invoiceSnap.id, ...(invoiceSnap.data() || {}) });
+            await bookingRef.set({
+                checkoutEmailStatus,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+        }
+    }
+    return { ok: true, bookingId, status: "checked_out", idempotent: false };
+}
 exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => {
     if (!request.auth?.uid) {
         throw new https_1.HttpsError("unauthenticated", "Please login first.");
@@ -631,6 +766,7 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
             const listing = listingSnap.data() || {};
             const unitsBooked = Math.max(1, Number(intent.unitsBooked || 1));
             const dateKey = toDateKey(String(intent.checkInDate || ""));
+            const schedule = buildCheckInOutSchedule(String(listing.type || "function_hall"), String(intent.checkInDate || ""));
             const bookingRef = db.collection("bookings").doc();
             const paymentRef = db.collection("payments").doc();
             const invoiceRef = db.collection("invoices").doc();
@@ -734,6 +870,15 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
                 invoiceNumber,
                 allocatedResource: allocation,
                 emailStatus: "pending",
+                checkoutEmailStatus: "pending",
+                scheduledCheckInAt: schedule.scheduledCheckInAt,
+                scheduledCheckOutAt: schedule.scheduledCheckOutAt,
+                checkInAt: null,
+                checkOutAt: null,
+                checkedInBy: null,
+                checkedOutBy: null,
+                checkoutMethod: null,
+                checkoutNotes: "",
                 confirmedAt: now,
                 cancelledAt: null,
                 refundAmount: 0,
@@ -918,6 +1063,154 @@ exports.resendBookingConfirmationEmail = (0, https_1.onCall)(async (request) => 
         }, { merge: true }),
     ]);
     return { ok: true, emailStatus };
+});
+exports.adminCheckIn = (0, https_1.onCall)(async (request) => {
+    if (!request.auth?.uid) {
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    }
+    const uid = request.auth.uid;
+    const bookingId = String(request.data?.bookingId || "");
+    if (!bookingId) {
+        throw new https_1.HttpsError("invalid-argument", "bookingId is required.");
+    }
+    const userSnap = await db.collection("users").doc(uid).get();
+    if (String(userSnap.data()?.role || "") !== "admin") {
+        throw new https_1.HttpsError("permission-denied", "Only admin can mark check-in.");
+    }
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingSnap = await bookingRef.get();
+    if (!bookingSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Booking not found.");
+    }
+    const booking = bookingSnap.data() || {};
+    if (String(booking.status || "") === "checked_in") {
+        return { ok: true, bookingId, idempotent: true };
+    }
+    if (String(booking.status || "") !== "confirmed") {
+        throw new https_1.HttpsError("failed-precondition", "Only confirmed booking can be checked-in.");
+    }
+    await bookingRef.set({
+        status: "checked_in",
+        checkInAt: admin.firestore.FieldValue.serverTimestamp(),
+        checkedInBy: uid,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    await db.collection("checkEvents").add({
+        bookingId,
+        type: "CHECKIN",
+        method: "ADMIN",
+        actorId: uid,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    await db.collection("auditLogs").add({
+        entity: "booking",
+        entityId: bookingId,
+        action: "CHECKIN",
+        message: "Admin check-in",
+        payload: {},
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: uid,
+    });
+    return { ok: true, bookingId };
+});
+exports.adminCheckOut = (0, https_1.onCall)(async (request) => {
+    if (!request.auth?.uid) {
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    }
+    const uid = request.auth.uid;
+    const bookingId = String(request.data?.bookingId || "");
+    const note = String(request.data?.note || "");
+    if (!bookingId) {
+        throw new https_1.HttpsError("invalid-argument", "bookingId is required.");
+    }
+    const userSnap = await db.collection("users").doc(uid).get();
+    if (String(userSnap.data()?.role || "") !== "admin") {
+        throw new https_1.HttpsError("permission-denied", "Only admin can check out.");
+    }
+    return finalizeCheckout({ bookingId, actorId: uid, method: "ADMIN", note });
+});
+exports.userCheckOut = (0, https_1.onCall)(async (request) => {
+    if (!request.auth?.uid) {
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    }
+    const uid = request.auth.uid;
+    const bookingId = String(request.data?.bookingId || "");
+    if (!bookingId) {
+        throw new https_1.HttpsError("invalid-argument", "bookingId is required.");
+    }
+    const bookingSnap = await db.collection("bookings").doc(bookingId).get();
+    if (!bookingSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Booking not found.");
+    }
+    const booking = bookingSnap.data() || {};
+    if (String(booking.userId || "") !== uid) {
+        throw new https_1.HttpsError("permission-denied", "Not allowed.");
+    }
+    const now = Date.now();
+    const scheduledCheckInAt = booking.scheduledCheckInAt?.toDate?.()?.getTime?.() || 0;
+    if (now < scheduledCheckInAt) {
+        throw new https_1.HttpsError("failed-precondition", "Checkout is not allowed before check-in window.");
+    }
+    return finalizeCheckout({ bookingId, actorId: uid, method: "USER" });
+});
+exports.resendCheckoutEmail = (0, https_1.onCall)(async (request) => {
+    if (!request.auth?.uid) {
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    }
+    const uid = request.auth.uid;
+    const bookingId = String(request.data?.bookingId || "");
+    if (!bookingId) {
+        throw new https_1.HttpsError("invalid-argument", "bookingId is required.");
+    }
+    const userSnap = await db.collection("users").doc(uid).get();
+    if (String(userSnap.data()?.role || "") !== "admin") {
+        throw new https_1.HttpsError("permission-denied", "Only admin can resend checkout email.");
+    }
+    const bookingSnap = await db.collection("bookings").doc(bookingId).get();
+    if (!bookingSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Booking not found.");
+    }
+    const booking = { id: bookingSnap.id, ...(bookingSnap.data() || {}) };
+    if (!booking.invoiceId) {
+        throw new https_1.HttpsError("failed-precondition", "No invoice attached.");
+    }
+    const invoiceSnap = await db.collection("invoices").doc(String(booking.invoiceId)).get();
+    if (!invoiceSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Invoice not found.");
+    }
+    const status = await sendCheckoutEmail(booking, { id: invoiceSnap.id, ...(invoiceSnap.data() || {}) });
+    await bookingSnap.ref.set({
+        checkoutEmailStatus: status,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { ok: true, checkoutEmailStatus: status };
+});
+exports.scheduledAutoCheckoutJob = (0, scheduler_1.onSchedule)("every 10 minutes", async () => {
+    const now = new Date();
+    const snap = await db.collection("bookings").get();
+    const due = snap.docs.filter((docSnap) => {
+        const data = docSnap.data() || {};
+        const status = String(data.status || "");
+        if (!["confirmed", "checked_in"].includes(status))
+            return false;
+        const scheduled = data.scheduledCheckOutAt?.toDate?.();
+        if (!scheduled)
+            return false;
+        return scheduled.getTime() <= now.getTime();
+    });
+    for (const docSnap of due) {
+        try {
+            await finalizeCheckout({
+                bookingId: docSnap.id,
+                actorId: "system:auto-checkout",
+                method: "AUTO",
+                note: "Auto checkout by scheduler",
+            });
+        }
+        catch (error) {
+            logger.error("Auto checkout failed", { bookingId: docSnap.id, error });
+        }
+    }
 });
 exports.getInvoiceDownloadUrl = (0, https_1.onCall)(async (request) => {
     if (!request.auth?.uid) {

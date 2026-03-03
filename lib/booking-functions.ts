@@ -53,3 +53,39 @@ export async function getInvoiceDownloadUrl(invoiceId: string) {
   const result = await callable({ invoiceId })
   return result.data
 }
+
+export async function adminCheckIn(bookingId: string) {
+  const callable = httpsCallable<{ bookingId: string }, { ok: boolean; bookingId: string }>(
+    functions,
+    "adminCheckIn"
+  )
+  const result = await callable({ bookingId })
+  return result.data
+}
+
+export async function adminCheckOut(bookingId: string, note = "") {
+  const callable = httpsCallable<
+    { bookingId: string; note: string },
+    { ok: boolean; bookingId: string; status: string; idempotent?: boolean }
+  >(functions, "adminCheckOut")
+  const result = await callable({ bookingId, note })
+  return result.data
+}
+
+export async function userCheckOut(bookingId: string) {
+  const callable = httpsCallable<
+    { bookingId: string },
+    { ok: boolean; bookingId: string; status: string; idempotent?: boolean }
+  >(functions, "userCheckOut")
+  const result = await callable({ bookingId })
+  return result.data
+}
+
+export async function resendCheckoutEmail(bookingId: string) {
+  const callable = httpsCallable<
+    { bookingId: string },
+    { ok: boolean; checkoutEmailStatus: string }
+  >(functions, "resendCheckoutEmail")
+  const result = await callable({ bookingId })
+  return result.data
+}

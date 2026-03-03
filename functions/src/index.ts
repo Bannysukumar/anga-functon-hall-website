@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin"
 import { onCall, HttpsError } from "firebase-functions/v2/https"
 import { onDocumentCreated } from "firebase-functions/v2/firestore"
+import { onSchedule } from "firebase-functions/v2/scheduler"
 import * as logger from "firebase-functions/logger"
 import { createHmac, timingSafeEqual } from "node:crypto"
 import PDFDocument from "pdfkit"
@@ -308,6 +309,30 @@ function isSlotBased(listingType: string) {
     "dining_hall",
     "local_tour",
   ].includes(listingType)
+}
+
+function buildCheckInOutSchedule(
+  listingType: string,
+  checkInDate: string
+): {
+  scheduledCheckInAt: admin.firestore.Timestamp
+  scheduledCheckOutAt: admin.firestore.Timestamp
+} {
+  const start = new Date(`${checkInDate}T12:00:00`)
+  const end = new Date(`${checkInDate}T11:00:00`)
+  if (isSlotBased(listingType)) {
+    const slotStart = new Date(`${checkInDate}T09:00:00`)
+    const slotEnd = new Date(`${checkInDate}T23:59:00`)
+    return {
+      scheduledCheckInAt: admin.firestore.Timestamp.fromDate(slotStart),
+      scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(slotEnd),
+    }
+  }
+  end.setDate(end.getDate() + 1)
+  return {
+    scheduledCheckInAt: admin.firestore.Timestamp.fromDate(start),
+    scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(end),
+  }
 }
 
 async function allocateResourcesInTransaction(
@@ -631,6 +656,159 @@ async function sendConfirmationEmail(
   return "failed" as const
 }
 
+async function sendCheckoutEmail(
+  bookingData: Record<string, any>,
+  invoiceData: Record<string, any>
+) {
+  const runtimeConfig = await getRuntimeSecureConfig()
+  const smtpTransport = await getSmtpTransportFromConfig(runtimeConfig)
+  if (!smtpTransport) return "pending" as const
+  const toEmail = String(invoiceData.customer?.email || "")
+  if (!toEmail) return "failed" as const
+
+  const settingsSnap = await db.collection("settings").doc("global").get()
+  const settings = (settingsSnap.data() || {}) as Record<string, any>
+  const defaultSubject = "Checkout Confirmed - {bookingId}"
+  const defaultBody =
+    "<p>Hello {userName},</p><p>Your checkout is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Allocated:</strong> {allocation}</p><p><strong>Check-out time:</strong> {checkOutAt}</p><p>Thank you for staying with us.</p>"
+  const templateValues = {
+    userName: String(invoiceData.customer?.name || "Guest"),
+    bookingId: String(bookingData.id || ""),
+    invoiceNumber: String(bookingData.invoiceNumber || invoiceData.invoiceNumber || ""),
+    listingName: String(bookingData.listingTitle || ""),
+    allocation: String((bookingData.allocatedResource?.labels || []).join(", ")),
+    checkOutAt: new Date().toLocaleString("en-IN"),
+  }
+  const subject = renderTemplate(
+    String(settings.checkoutEmailSubjectTemplate || defaultSubject),
+    templateValues
+  )
+  const html = renderTemplate(
+    String(settings.checkoutEmailHtmlTemplate || defaultBody),
+    templateValues
+  )
+
+  try {
+    const response = await smtpTransport.sendMail({
+      from: `"${runtimeConfig.smtpFromName || "Anga Function Hall"}" <${runtimeConfig.smtpFromEmail || runtimeConfig.smtpUser}>`,
+      to: toEmail,
+      subject,
+      html,
+    })
+    await writeEmailLog({
+      bookingId: String(bookingData.id || ""),
+      invoiceId: String(bookingData.invoiceId || ""),
+      toEmail,
+      status: "SENT",
+      messageId: String(response.messageId || ""),
+    })
+    return "sent" as const
+  } catch (error) {
+    await writeEmailLog({
+      bookingId: String(bookingData.id || ""),
+      invoiceId: String(bookingData.invoiceId || ""),
+      toEmail,
+      status: "FAILED",
+      error: error instanceof Error ? error.message : "Checkout email failed",
+    })
+    return "failed" as const
+  }
+}
+
+async function finalizeCheckout(params: {
+  bookingId: string
+  actorId: string
+  method: "USER" | "ADMIN" | "AUTO"
+  note?: string
+}) {
+  const { bookingId, actorId, method, note } = params
+  const bookingRef = db.collection("bookings").doc(bookingId)
+  const bookingSnap = await bookingRef.get()
+  if (!bookingSnap.exists) {
+    throw new HttpsError("not-found", "Booking not found.")
+  }
+  const bookingData = { id: bookingSnap.id, ...(bookingSnap.data() || {}) } as Record<string, any>
+  if (["checked_out", "cancelled", "no_show"].includes(String(bookingData.status || ""))) {
+    return { ok: true, idempotent: true, bookingId, status: bookingData.status }
+  }
+  if (!["confirmed", "checked_in"].includes(String(bookingData.status || ""))) {
+    throw new HttpsError("failed-precondition", "Booking cannot be checked out in current state.")
+  }
+
+  await db.runTransaction(async (transaction) => {
+    const latestBooking = await transaction.get(bookingRef)
+    const latest = latestBooking.data() || {}
+    if (["checked_out", "cancelled", "no_show"].includes(String(latest.status || ""))) {
+      return
+    }
+    transaction.set(
+      bookingRef,
+      {
+        status: "checked_out",
+        checkOutAt: admin.firestore.FieldValue.serverTimestamp(),
+        checkedOutBy: actorId,
+        checkoutMethod: method,
+        checkoutNotes: note || "",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    )
+
+    const reservationsQuery = db.collection("reservations").where("bookingId", "==", bookingId)
+    const reservationsSnap = await transaction.get(reservationsQuery)
+    reservationsSnap.forEach((reservationDoc) => {
+      transaction.set(
+        reservationDoc.ref,
+        {
+          status: "COMPLETED",
+          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      )
+    })
+
+    const checkEventRef = db.collection("checkEvents").doc()
+    transaction.set(checkEventRef, {
+      bookingId,
+      type: "CHECKOUT",
+      method,
+      actorId,
+      note: note || "",
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    })
+
+    const auditRef = db.collection("auditLogs").doc()
+    transaction.set(auditRef, {
+      entity: "booking",
+      entityId: bookingId,
+      action: "CHECKOUT",
+      message: `Booking checked out (${method})`,
+      payload: { method, note: note || "" },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: actorId,
+    })
+  })
+
+  if (bookingData.invoiceId) {
+    const invoiceSnap = await db.collection("invoices").doc(String(bookingData.invoiceId)).get()
+    if (invoiceSnap.exists) {
+      const checkoutEmailStatus = await sendCheckoutEmail(
+        bookingData,
+        { id: invoiceSnap.id, ...(invoiceSnap.data() || {}) } as Record<string, any>
+      )
+      await bookingRef.set(
+        {
+          checkoutEmailStatus,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      )
+    }
+  }
+
+  return { ok: true, bookingId, status: "checked_out", idempotent: false }
+}
+
 export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
   if (!request.auth?.uid) {
     throw new HttpsError("unauthenticated", "Please login first.")
@@ -753,6 +931,10 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
     const listing = listingSnap.data() || {}
     const unitsBooked = Math.max(1, Number(intent.unitsBooked || 1))
     const dateKey = toDateKey(String(intent.checkInDate || ""))
+    const schedule = buildCheckInOutSchedule(
+      String(listing.type || "function_hall"),
+      String(intent.checkInDate || "")
+    )
     const bookingRef = db.collection("bookings").doc()
     const paymentRef = db.collection("payments").doc()
     const invoiceRef = db.collection("invoices").doc()
@@ -863,6 +1045,15 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
       invoiceNumber,
       allocatedResource: allocation,
       emailStatus: "pending",
+      checkoutEmailStatus: "pending",
+      scheduledCheckInAt: schedule.scheduledCheckInAt,
+      scheduledCheckOutAt: schedule.scheduledCheckOutAt,
+      checkInAt: null,
+      checkOutAt: null,
+      checkedInBy: null,
+      checkedOutBy: null,
+      checkoutMethod: null,
+      checkoutNotes: "",
       confirmedAt: now,
       cancelledAt: null,
       refundAmount: 0,
@@ -1084,6 +1275,166 @@ export const resendBookingConfirmationEmail = onCall(async (request) => {
     ),
   ])
   return { ok: true, emailStatus }
+})
+
+export const adminCheckIn = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Please login first.")
+  }
+  const uid = request.auth.uid
+  const bookingId = String(request.data?.bookingId || "")
+  if (!bookingId) {
+    throw new HttpsError("invalid-argument", "bookingId is required.")
+  }
+  const userSnap = await db.collection("users").doc(uid).get()
+  if (String(userSnap.data()?.role || "") !== "admin") {
+    throw new HttpsError("permission-denied", "Only admin can mark check-in.")
+  }
+  const bookingRef = db.collection("bookings").doc(bookingId)
+  const bookingSnap = await bookingRef.get()
+  if (!bookingSnap.exists) {
+    throw new HttpsError("not-found", "Booking not found.")
+  }
+  const booking = bookingSnap.data() || {}
+  if (String(booking.status || "") === "checked_in") {
+    return { ok: true, bookingId, idempotent: true }
+  }
+  if (String(booking.status || "") !== "confirmed") {
+    throw new HttpsError("failed-precondition", "Only confirmed booking can be checked-in.")
+  }
+  await bookingRef.set(
+    {
+      status: "checked_in",
+      checkInAt: admin.firestore.FieldValue.serverTimestamp(),
+      checkedInBy: uid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  )
+  await db.collection("checkEvents").add({
+    bookingId,
+    type: "CHECKIN",
+    method: "ADMIN",
+    actorId: uid,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+  })
+  await db.collection("auditLogs").add({
+    entity: "booking",
+    entityId: bookingId,
+    action: "CHECKIN",
+    message: "Admin check-in",
+    payload: {},
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdBy: uid,
+  })
+  return { ok: true, bookingId }
+})
+
+export const adminCheckOut = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Please login first.")
+  }
+  const uid = request.auth.uid
+  const bookingId = String(request.data?.bookingId || "")
+  const note = String(request.data?.note || "")
+  if (!bookingId) {
+    throw new HttpsError("invalid-argument", "bookingId is required.")
+  }
+  const userSnap = await db.collection("users").doc(uid).get()
+  if (String(userSnap.data()?.role || "") !== "admin") {
+    throw new HttpsError("permission-denied", "Only admin can check out.")
+  }
+  return finalizeCheckout({ bookingId, actorId: uid, method: "ADMIN", note })
+})
+
+export const userCheckOut = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Please login first.")
+  }
+  const uid = request.auth.uid
+  const bookingId = String(request.data?.bookingId || "")
+  if (!bookingId) {
+    throw new HttpsError("invalid-argument", "bookingId is required.")
+  }
+  const bookingSnap = await db.collection("bookings").doc(bookingId).get()
+  if (!bookingSnap.exists) {
+    throw new HttpsError("not-found", "Booking not found.")
+  }
+  const booking = bookingSnap.data() || {}
+  if (String(booking.userId || "") !== uid) {
+    throw new HttpsError("permission-denied", "Not allowed.")
+  }
+  const now = Date.now()
+  const scheduledCheckInAt = booking.scheduledCheckInAt?.toDate?.()?.getTime?.() || 0
+  if (now < scheduledCheckInAt) {
+    throw new HttpsError("failed-precondition", "Checkout is not allowed before check-in window.")
+  }
+  return finalizeCheckout({ bookingId, actorId: uid, method: "USER" })
+})
+
+export const resendCheckoutEmail = onCall(async (request) => {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Please login first.")
+  }
+  const uid = request.auth.uid
+  const bookingId = String(request.data?.bookingId || "")
+  if (!bookingId) {
+    throw new HttpsError("invalid-argument", "bookingId is required.")
+  }
+  const userSnap = await db.collection("users").doc(uid).get()
+  if (String(userSnap.data()?.role || "") !== "admin") {
+    throw new HttpsError("permission-denied", "Only admin can resend checkout email.")
+  }
+  const bookingSnap = await db.collection("bookings").doc(bookingId).get()
+  if (!bookingSnap.exists) {
+    throw new HttpsError("not-found", "Booking not found.")
+  }
+  const booking = { id: bookingSnap.id, ...(bookingSnap.data() || {}) } as Record<string, any>
+  if (!booking.invoiceId) {
+    throw new HttpsError("failed-precondition", "No invoice attached.")
+  }
+  const invoiceSnap = await db.collection("invoices").doc(String(booking.invoiceId)).get()
+  if (!invoiceSnap.exists) {
+    throw new HttpsError("not-found", "Invoice not found.")
+  }
+  const status = await sendCheckoutEmail(
+    booking,
+    { id: invoiceSnap.id, ...(invoiceSnap.data() || {}) } as Record<string, any>
+  )
+  await bookingSnap.ref.set(
+    {
+      checkoutEmailStatus: status,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  )
+  return { ok: true, checkoutEmailStatus: status }
+})
+
+export const scheduledAutoCheckoutJob = onSchedule("every 10 minutes", async () => {
+  const now = new Date()
+  const snap = await db.collection("bookings").get()
+  const due = snap.docs.filter((docSnap) => {
+    const data = docSnap.data() || {}
+    const status = String(data.status || "")
+    if (!["confirmed", "checked_in"].includes(status)) return false
+    const scheduled = data.scheduledCheckOutAt?.toDate?.()
+    if (!scheduled) return false
+    return scheduled.getTime() <= now.getTime()
+  })
+
+  for (const docSnap of due) {
+    try {
+      await finalizeCheckout({
+        bookingId: docSnap.id,
+        actorId: "system:auto-checkout",
+        method: "AUTO",
+        note: "Auto checkout by scheduler",
+      })
+    } catch (error) {
+      logger.error("Auto checkout failed", { bookingId: docSnap.id, error })
+    }
+  }
 })
 
 export const getInvoiceDownloadUrl = onCall(async (request) => {
