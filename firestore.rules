@@ -1,0 +1,192 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userExists() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isBlocked() {
+      return userExists() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBlocked == true;
+    }
+
+    function isAdmin() {
+      return signedIn() &&
+        userExists() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    function staffExists() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/staff/$(request.auth.uid));
+    }
+
+    function staffDoc() {
+      return get(/databases/$(database)/documents/staff/$(request.auth.uid));
+    }
+
+    function roleHasPermission(roleId, permission) {
+      return roleId is string &&
+        exists(/databases/$(database)/documents/roles/$(roleId)) &&
+        permission in get(/databases/$(database)/documents/roles/$(roleId)).data.permissions;
+    }
+
+    function hasStaffPermission(permission) {
+      return staffExists() &&
+        (
+          (
+            staffDoc().data.effectivePermissions is list &&
+            permission in staffDoc().data.effectivePermissions
+          ) ||
+          roleHasPermission(staffDoc().data.roleId, permission) ||
+          (
+            staffDoc().data.extraRoleIds is list &&
+            staffDoc().data.extraRoleIds.size() > 0 &&
+            roleHasPermission(staffDoc().data.extraRoleIds[0], permission)
+          ) ||
+          (
+            staffDoc().data.extraRoleIds is list &&
+            staffDoc().data.extraRoleIds.size() > 1 &&
+            roleHasPermission(staffDoc().data.extraRoleIds[1], permission)
+          ) ||
+          (
+            staffDoc().data.extraRoleIds is list &&
+            staffDoc().data.extraRoleIds.size() > 2 &&
+            roleHasPermission(staffDoc().data.extraRoleIds[2], permission)
+          )
+        );
+    }
+
+    match /branches/{branchId} {
+      allow read: if true;
+      allow write: if isAdmin() || hasStaffPermission("SETTINGS_EDIT");
+    }
+
+    match /listings/{listingId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || hasStaffPermission("LISTINGS_CREATE_EDIT");
+      allow delete: if isAdmin() || hasStaffPermission("LISTINGS_DELETE");
+    }
+
+    match /users/{userId} {
+      allow read: if isAdmin() ||
+        hasStaffPermission("USERS_VIEW") ||
+        (signedIn() && request.auth.uid == userId);
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if isAdmin() ||
+        hasStaffPermission("USERS_BLOCK_UNBLOCK") ||
+        (
+          signedIn() &&
+          request.auth.uid == userId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.isBlocked == resource.data.isBlocked
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isAdmin() ||
+        hasStaffPermission("BOOKINGS_VIEW") ||
+        (signedIn() && resource.data.userId == request.auth.uid);
+      // Booking creation is server-finalized only.
+      allow create: if isAdmin();
+      allow update: if isAdmin() ||
+        hasStaffPermission("BOOKINGS_UPDATE_STATUS") ||
+        (
+          signedIn() &&
+          !isBlocked() &&
+          resource.data.userId == request.auth.uid &&
+          resource.data.status in ["pending", "confirmed"] &&
+          request.resource.data.status == "cancelled" &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.totalAmount == resource.data.totalAmount &&
+          request.resource.data.basePrice == resource.data.basePrice &&
+          request.resource.data.addonsTotal == resource.data.addonsTotal &&
+          request.resource.data.taxAmount == resource.data.taxAmount &&
+          request.resource.data.serviceFee == resource.data.serviceFee &&
+          request.resource.data.advancePaid == resource.data.advancePaid &&
+          request.resource.data.dueAmount == resource.data.dueAmount
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAdmin() ||
+        hasStaffPermission("PAYMENTS_VIEW") ||
+        (signedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /bookingIntents/{intentId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /availabilityLocks/{lockId} {
+      allow read: if true;
+      // Needed for booking transaction from client app.
+      allow create, update: if isAdmin() || (signedIn() && !isBlocked());
+      allow delete: if isAdmin();
+    }
+
+    match /coupons/{couponId} {
+      allow read: if signedIn() && !isBlocked();
+      allow write: if isAdmin() || hasStaffPermission("CMS_EDIT");
+    }
+
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow write: if isAdmin() || hasStaffPermission("SETTINGS_EDIT");
+    }
+
+    match /secureSettings/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /roles/{roleId} {
+      allow read: if signedIn();
+      allow write: if isAdmin() || hasStaffPermission("STAFF_ASSIGN_ROLE");
+    }
+
+    match /staff/{staffId} {
+      allow read: if isAdmin() ||
+        hasStaffPermission("ATTENDANCE_VIEW_ALL") ||
+        hasStaffPermission("STAFF_ASSIGN_ROLE") ||
+        (signedIn() && request.auth.uid == staffId);
+      allow write: if isAdmin() || hasStaffPermission("STAFF_ASSIGN_ROLE");
+    }
+
+    match /workLocations/{locationId} {
+      allow read: if signedIn();
+      allow write: if isAdmin() || hasStaffPermission("SETTINGS_EDIT");
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if signedIn();
+      allow write: if isAdmin() || hasStaffPermission("SETTINGS_EDIT");
+    }
+
+    match /attendance/{attendanceId} {
+      allow read: if isAdmin() ||
+        hasStaffPermission("ATTENDANCE_VIEW_ALL") ||
+        (signedIn() && resource.data.userId == request.auth.uid);
+      // Attendance creation is validated server-side (Cloud Function/admin only).
+      allow create: if isAdmin() || hasStaffPermission("ATTENDANCE_MARK_FOR_OTHERS");
+      allow update: if isAdmin() || hasStaffPermission("ATTENDANCE_MARK_FOR_OTHERS");
+      allow delete: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

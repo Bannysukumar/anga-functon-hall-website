@@ -1,0 +1,111 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { Header } from "@/components/layout/header"
+import { Footer } from "@/components/layout/footer"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { CheckCircle2, FileText, Home } from "lucide-react"
+
+interface ConfirmationData {
+  bookingId: string
+  invoiceNumber: string
+  listingTitle: string
+  totalAmount: number
+  advancePaid: number
+}
+
+export default function CheckoutSuccessPage() {
+  const [data, setData] = useState<ConfirmationData | null>(null)
+  const router = useRouter()
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem("bookingConfirmation")
+    if (!stored) {
+      router.push("/")
+      return
+    }
+    setData(JSON.parse(stored))
+  }, [router])
+
+  if (!data) return null
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <Header />
+      <main className="flex flex-1 items-center justify-center bg-secondary/30 p-4">
+        <Card className="w-full max-w-md shadow-lg">
+          <CardContent className="flex flex-col items-center gap-6 p-8 text-center">
+            <div className="rounded-full bg-emerald-100 p-4">
+              <CheckCircle2 className="h-10 w-10 text-emerald-600" />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <h1 className="text-2xl font-bold text-foreground">
+                Booking Confirmed!
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Your booking has been successfully placed and confirmed.
+              </p>
+            </div>
+
+            <div className="w-full rounded-lg bg-secondary p-4 text-left">
+              <div className="flex flex-col gap-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Venue</span>
+                  <span className="font-medium text-foreground">
+                    {data.listingTitle}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Invoice</span>
+                  <span className="font-mono text-xs text-foreground">
+                    {data.invoiceNumber}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total</span>
+                  <span className="font-medium text-foreground">
+                    {`\u20B9${data.totalAmount.toLocaleString("en-IN")}`}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Paid</span>
+                  <span className="font-medium text-emerald-600">
+                    {`\u20B9${data.advancePaid.toLocaleString("en-IN")}`}
+                  </span>
+                </div>
+                {data.totalAmount - data.advancePaid > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Due</span>
+                    <span className="font-medium text-foreground">
+                      {`\u20B9${(data.totalAmount - data.advancePaid).toLocaleString("en-IN")}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex w-full flex-col gap-3">
+              <Link href={`/dashboard/bookings/${data.bookingId}`}>
+                <Button className="w-full" variant="default">
+                  <FileText className="mr-2 h-4 w-4" />
+                  View Booking Details
+                </Button>
+              </Link>
+              <Link href="/">
+                <Button className="w-full" variant="outline">
+                  <Home className="mr-2 h-4 w-4" />
+                  Back to Home
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </main>
+      <Footer />
+    </div>
+  )
+}
