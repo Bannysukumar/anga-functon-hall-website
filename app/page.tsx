@@ -8,7 +8,17 @@ export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
-      <main className="flex-1">
+      <main
+        className="flex-1"
+        style={{
+          backgroundImage:
+            'url("https://bhadradritemple.telangana.gov.in/images/sevasbackground.png")',
+          backgroundSize: "cover",
+          backgroundRepeat: "no-repeat",
+          backgroundAttachment: "fixed",
+          backgroundPosition: "center top",
+        }}
+      >
         <HeroSection />
         <CategoryCards />
         <FeaturedListings />
