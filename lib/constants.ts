@@ -62,6 +62,7 @@ export const DEFAULT_SETTINGS = {
   taxPercent: 18,
   contactEmail: "angafunctonhall@gmail.com",
   contactPhone: "098855 55729",
+  siteLogoUrl: "",
   refundPolicyText:
     "Cancellations made 48 hours before check-in are eligible for a full refund. Late cancellations may be subject to partial refunds based on the listing's policy.",
   minAdvancePercent: 25,

@@ -16,6 +16,13 @@ service firebase.storage {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    match /branding/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() &&
+        request.resource != null &&
+        request.resource.contentType.matches("image/.*");
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

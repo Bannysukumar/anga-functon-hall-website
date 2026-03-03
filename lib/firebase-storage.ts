@@ -46,3 +46,7 @@ export function getListingImagePath(listingId: string, fileName: string) {
 export function getBannerImagePath(fileName: string) {
   return `banners/${Date.now()}_${fileName}`
 }
+
+export function getSiteLogoPath(fileName: string) {
+  return `branding/logo/${Date.now()}_${fileName}`
+}

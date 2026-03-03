@@ -12,23 +12,6 @@ export const metadata: Metadata = {
   title: 'Anga Function Hall - Book Premium Venues & Services',
   description: 'Book function halls, rooms, dormitories, dining halls and more. Instant availability, secure payments, and hassle-free booking experience.',
   generator: 'v0.app',
-  icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
-    ],
-    apple: '/apple-icon.png',
-  },
 }
 
 export const viewport = {

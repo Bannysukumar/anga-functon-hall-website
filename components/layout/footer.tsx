@@ -1,5 +1,6 @@
 import Link from "next/link"
-import { Building2, Mail, Phone, MapPin } from "lucide-react"
+import { Mail, Phone, MapPin } from "lucide-react"
+import { SiteLogo } from "@/components/layout/site-logo"
 
 export function Footer() {
   return (
@@ -8,8 +9,7 @@ export function Footer() {
         <div className="grid gap-8 md:grid-cols-5">
           <div className="flex flex-col gap-4">
             <Link href="/" className="flex items-center gap-2">
-              <Building2 className="h-6 w-6 text-primary" />
-              <span className="text-lg font-bold text-foreground">Anga Function Hall</span>
+              <SiteLogo />
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Your one-stop destination for booking premium venues and

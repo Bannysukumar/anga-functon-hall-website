@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
+import { getSiteLogoPath, uploadImage } from "@/lib/firebase-storage"
 import { toast } from "sonner"
 import { useAuth } from "@/lib/hooks/use-auth"
 
@@ -22,6 +23,7 @@ export default function SettingsPage() {
   const { isAdminUser } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
   const [secureSettings, setSecureSettings] = useState<SecureSettings>({
     razorpaySecretKey: "",
@@ -61,6 +63,29 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file.")
+      return
+    }
+    setUploadingLogo(true)
+    try {
+      const path = getSiteLogoPath(file.name)
+      const logoUrl = await uploadImage(file, path)
+      setSettings((prev) => ({ ...prev, siteLogoUrl: logoUrl }))
+      toast.success("Logo uploaded. Click Save Settings to apply site-wide.")
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to upload logo."
+      toast.error(message)
+    } finally {
+      setUploadingLogo(false)
+      e.target.value = ""
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -79,6 +104,40 @@ export default function SettingsPage() {
       </div>
 
       <form onSubmit={handleSave} className="flex flex-col gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Branding</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex items-center gap-4">
+              {settings.siteLogoUrl ? (
+                <img
+                  src={settings.siteLogoUrl}
+                  alt="Current site logo"
+                  className="h-14 w-14 rounded object-cover border"
+                />
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded border text-xs text-muted-foreground">
+                  No Logo
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="site-logo-upload">Website Logo</Label>
+                <Input
+                  id="site-logo-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoUpload}
+                  disabled={uploadingLogo}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Upload a square logo. After upload, click Save Settings.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Pricing & Fees</CardTitle>

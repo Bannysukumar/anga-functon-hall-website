@@ -1,5 +1,5 @@
 import { SignupForm } from "@/components/auth/signup-form"
-import { Building2 } from "lucide-react"
+import { SiteLogo } from "@/components/layout/site-logo"
 import Link from "next/link"
 
 export default function SignupPage() {
@@ -7,10 +7,10 @@ export default function SignupPage() {
     <div className="flex min-h-screen">
       <div className="hidden w-1/2 bg-primary lg:flex lg:flex-col lg:justify-between lg:p-12">
         <Link href="/" className="flex items-center gap-2">
-          <Building2 className="h-8 w-8 text-primary-foreground" />
-          <span className="text-xl font-bold text-primary-foreground">
-            Anga Function Hall
-          </span>
+          <SiteLogo
+            iconClassName="h-8 w-8 text-primary-foreground"
+            textClassName="text-xl font-bold text-primary-foreground"
+          />
         </Link>
         <div className="flex flex-col gap-4">
           <h2 className="text-3xl font-bold text-primary-foreground text-balance">
@@ -29,8 +29,7 @@ export default function SignupPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8 lg:hidden">
             <Link href="/" className="flex items-center justify-center gap-2">
-              <Building2 className="h-7 w-7 text-primary" />
-              <span className="text-lg font-bold text-foreground">Anga Function Hall</span>
+              <SiteLogo />
             </Link>
           </div>
           <SignupForm />

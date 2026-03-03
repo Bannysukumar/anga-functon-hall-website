@@ -181,6 +181,7 @@ export interface SiteSettings {
   taxPercent: number
   contactEmail: string
   contactPhone: string
+  siteLogoUrl: string
   refundPolicyText: string
   minAdvancePercent: number
   maxBookingWindowDays: number

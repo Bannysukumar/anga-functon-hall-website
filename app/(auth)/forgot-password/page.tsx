@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { Building2, ArrowLeft } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
+import { SiteLogo } from "@/components/layout/site-logo"
 import Link from "next/link"
 
 export default function ForgotPasswordPage() {
@@ -34,8 +35,7 @@ export default function ForgotPasswordPage() {
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="w-full max-w-sm flex flex-col gap-6">
         <Link href="/" className="flex items-center justify-center gap-2">
-          <Building2 className="h-7 w-7 text-primary" />
-          <span className="text-lg font-bold text-foreground">Anga Function Hall</span>
+          <SiteLogo />
         </Link>
 
         {sent ? (
