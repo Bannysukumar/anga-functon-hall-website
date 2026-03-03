@@ -48,6 +48,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/hooks/use-auth"
+import { resendBookingConfirmationEmail } from "@/lib/booking-functions"
 
 export default function AdminBookingsPage() {
   const searchParams = useSearchParams()
@@ -130,6 +131,40 @@ export default function AdminBookingsPage() {
       toast({
         title: "Error",
         description: "Failed to approve refund.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleResendEmail = async (bookingId: string) => {
+    try {
+      const result = await resendBookingConfirmationEmail(bookingId)
+      toast({
+        title: "Email status updated",
+        description: `Confirmation email: ${result.emailStatus}`,
+      })
+      loadBookings()
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to resend confirmation email.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleForceResendEmail = async (bookingId: string) => {
+    try {
+      const result = await resendBookingConfirmationEmail(bookingId, true)
+      toast({
+        title: "Email resent",
+        description: `Confirmation email: ${result.emailStatus}`,
+      })
+      loadBookings()
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to force resend confirmation email.",
         variant: "destructive",
       })
     }
@@ -218,6 +253,7 @@ export default function AdminBookingsPage() {
                   <TableHead>Amount</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Payment</TableHead>
+                  <TableHead>Allocation / Invoice</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -225,7 +261,7 @@ export default function AdminBookingsPage() {
                 {filtered.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={7}
                       className="py-10 text-center text-muted-foreground"
                     >
                       No bookings found.
@@ -289,6 +325,26 @@ export default function AdminBookingsPage() {
                           >
                             {PAYMENT_STATUS_LABELS[booking.paymentStatus]}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-xs text-muted-foreground">
+                            <p>
+                              {(booking.allocatedResource?.labels || [])
+                                .slice(0, 2)
+                                .join(", ") || "-"}
+                            </p>
+                            {booking.invoiceNumber && (
+                              <p className="font-mono text-[10px] text-foreground">
+                                {booking.invoiceNumber}
+                              </p>
+                            )}
+                            <p>
+                              Payment Verified: {booking.paymentVerified ? "Yes" : "No"}
+                            </p>
+                            <p>
+                              Email: {booking.emailStatus || "pending"}
+                            </p>
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
@@ -367,6 +423,24 @@ export default function AdminBookingsPage() {
                                 >
                                   <CheckCircle className="mr-2 h-4 w-4" />
                                   Mark Fully Paid
+                                </DropdownMenuItem>
+                              )}
+                              {booking.status === "confirmed" && (
+                                <DropdownMenuItem
+                                  onClick={() => handleResendEmail(booking.id)}
+                                  disabled={!isAdminUser}
+                                >
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                  Resend Email
+                                </DropdownMenuItem>
+                              )}
+                              {booking.status === "confirmed" && booking.emailStatus === "sent" && (
+                                <DropdownMenuItem
+                                  onClick={() => handleForceResendEmail(booking.id)}
+                                  disabled={!isAdminUser}
+                                >
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                  Force Resend Email
                                 </DropdownMenuItem>
                               )}
                             </DropdownMenuContent>

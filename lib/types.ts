@@ -114,11 +114,75 @@ export interface Booking {
   razorpayOrderId: string
   razorpayPaymentId: string
   invoiceNumber: string
+  invoiceId?: string
+  allocatedResource?: {
+    allocationType: "units" | "inventory" | "slot" | "seats"
+    unitIds?: string[]
+    labels?: string[]
+    reservationDocIds?: string[]
+    dateKey?: string
+    slotId?: string | null
+    quantity: number
+  }
+  paymentVerified?: boolean
+  emailStatus?: "pending" | "sent" | "failed"
   cancelledAt: Timestamp | null
   refundAmount: number
   refundStatus: "none" | "requested" | "approved" | "processed"
   createdAt: Timestamp
   updatedAt: Timestamp
+}
+
+export interface Reservation {
+  id: string
+  listingId: string
+  bookingId: string
+  userId: string
+  dateKey: string
+  unitId?: string
+  slotId?: string | null
+  quantity?: number
+  status: "BOOKED"
+  createdAt: Timestamp
+}
+
+export interface Invoice {
+  id: string
+  invoiceNumber: string
+  bookingId: string
+  userId: string
+  issuedAt: Timestamp
+  customer: {
+    name: string
+    email: string
+    phone: string
+  }
+  service: {
+    listingId: string
+    listingTitle: string
+    listingType: ListingType
+    dateKey: string
+    slotName?: string | null
+    allocatedLabels: string[]
+  }
+  breakdown: {
+    basePrice: number
+    addonsTotal: number
+    couponDiscount: number
+    taxAmount: number
+    serviceFee: number
+    totalAmount: number
+    paidAmount: number
+    dueAmount: number
+  }
+  payment: {
+    razorpayOrderId: string
+    razorpayPaymentId: string
+  }
+  invoicePdfUrl?: string
+  invoicePdfPath?: string
+  invoiceHtml?: string
+  emailStatus?: "pending" | "sent" | "failed"
 }
 
 // =====================
@@ -189,10 +253,21 @@ export interface SiteSettings {
   razorpayDisplayName: string
   heroBanners: HeroBanner[]
   featuredListingIds: string[]
+  bookingEmailSubjectTemplate?: string
+  bookingEmailHtmlTemplate?: string
 }
 
 export interface SecureSettings {
   razorpaySecretKey: string
+  smtpHost: string
+  smtpPort: number
+  smtpSecure: boolean
+  smtpUser: string
+  smtpPass: string
+  smtpFromName: string
+  smtpFromEmail: string
+  adminNotificationEmail: string
+  appBaseUrl: string
 }
 
 // =====================

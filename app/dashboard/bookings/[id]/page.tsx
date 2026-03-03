@@ -1,8 +1,8 @@
 "use client"
 
 import { useAuth } from "@/lib/hooks/use-auth"
-import { getBooking, updateBooking } from "@/lib/firebase-db"
-import type { Booking } from "@/lib/types"
+import { getBooking, getInvoice, updateBooking } from "@/lib/firebase-db"
+import type { Booking, Invoice } from "@/lib/types"
 import {
   BOOKING_STATUS_LABELS,
   BOOKING_STATUS_COLORS,
@@ -47,6 +47,7 @@ export default function BookingDetailPage() {
   const { user } = useAuth()
   const { toast } = useToast()
   const [booking, setBooking] = useState<Booking | null>(null)
+  const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
 
@@ -57,6 +58,10 @@ export default function BookingDetailPage() {
         const data = await getBooking(id)
         if (data && data.userId === user?.uid) {
           setBooking(data)
+          if (data.invoiceId) {
+            const invoiceData = await getInvoice(data.invoiceId)
+            setInvoice(invoiceData)
+          }
         }
       } catch (err) {
         console.error("Error loading booking:", err)
@@ -227,6 +232,20 @@ export default function BookingDetailPage() {
           </Card>
 
           {/* Addons */}
+          {booking.allocatedResource && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Allocated Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-foreground">
+                  {(booking.allocatedResource.labels || []).join(", ") || "Allocated"}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Addons */}
           {booking.selectedAddons && booking.selectedAddons.length > 0 && (
             <Card>
               <CardHeader>
@@ -263,6 +282,14 @@ export default function BookingDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
+              {invoice?.id && (
+                <Button asChild variant="secondary" className="w-full">
+                  <Link href={`/invoice/${invoice.id}`}>
+                    <Receipt className="mr-2 h-4 w-4" />
+                    Download Invoice PDF
+                  </Link>
+                </Button>
+              )}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Base Price</span>
                 <span className="text-foreground">{"₹"}{booking.basePrice.toLocaleString("en-IN")}</span>

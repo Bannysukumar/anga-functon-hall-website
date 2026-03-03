@@ -30,6 +30,12 @@ service firebase.storage {
         request.resource.contentType.matches("image/.*");
     }
 
+    match /invoices/{allPaths=**} {
+      // Invoices are served via short-lived signed URLs from Cloud Functions.
+      allow read: if false;
+      allow write: if false;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

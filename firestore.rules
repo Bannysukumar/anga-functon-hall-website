@@ -73,6 +73,11 @@ service cloud.firestore {
       allow delete: if isAdmin() || hasStaffPermission("LISTINGS_DELETE");
     }
 
+    match /listings/{listingId}/units/{unitId} {
+      allow read: if isAdmin() || hasStaffPermission("LISTINGS_VIEW");
+      allow write: if isAdmin() || hasStaffPermission("LISTINGS_CREATE_EDIT");
+    }
+
     match /users/{userId} {
       allow read: if isAdmin() ||
         hasStaffPermission("USERS_VIEW") ||
@@ -124,6 +129,20 @@ service cloud.firestore {
 
     match /bookingIntents/{intentId} {
       allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /reservations/{reservationId} {
+      allow read: if isAdmin() ||
+        hasStaffPermission("BOOKINGS_VIEW") ||
+        (signedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isAdmin() ||
+        hasStaffPermission("PAYMENTS_VIEW") ||
+        (signedIn() && resource.data.userId == request.auth.uid);
       allow write: if isAdmin();
     }
 
@@ -182,6 +201,10 @@ service cloud.firestore {
     }
 
     match /auditLogs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /emailLogs/{logId} {
       allow read, write: if isAdmin();
     }
 

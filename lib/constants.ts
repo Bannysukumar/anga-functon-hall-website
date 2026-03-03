@@ -87,6 +87,9 @@ export const DEFAULT_SETTINGS = {
     },
   ],
   featuredListingIds: [],
+  bookingEmailSubjectTemplate: "Booking Confirmed - {invoiceNumber}",
+  bookingEmailHtmlTemplate:
+    "<p>Hello {userName},</p><p>Your booking is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice Number:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Date:</strong> {dates}</p><p><strong>Slot:</strong> {slots}</p><p><strong>Allocated:</strong> {allocatedUnits}</p><p><strong>Amount Paid:</strong> INR {amountPaid}</p><p><a href='{invoiceLink}'>Download Invoice</a></p>",
 }
 
 export const AMENITY_OPTIONS = [

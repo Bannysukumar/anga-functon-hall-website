@@ -11,7 +11,11 @@ import { CheckCircle2, FileText, Home } from "lucide-react"
 
 interface ConfirmationData {
   bookingId: string
+  invoiceId?: string
   invoiceNumber: string
+  invoicePdfUrl?: string
+  allocatedLabels?: string[]
+  emailStatus?: "pending" | "sent" | "failed"
   listingTitle: string
   totalAmount: number
   advancePaid: number
@@ -65,6 +69,20 @@ export default function CheckoutSuccessPage() {
                     {data.invoiceNumber}
                   </span>
                 </div>
+                {data.allocatedLabels && data.allocatedLabels.length > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Allocated</span>
+                    <span className="font-medium text-foreground text-right">
+                      {data.allocatedLabels.join(", ")}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Email</span>
+                  <span className="font-medium text-foreground capitalize">
+                    {data.emailStatus || "pending"}
+                  </span>
+                </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Total</span>
                   <span className="font-medium text-foreground">
@@ -95,6 +113,14 @@ export default function CheckoutSuccessPage() {
                   View Booking Details
                 </Button>
               </Link>
+              {data.invoiceId && (
+                <Link href={`/invoice/${data.invoiceId}`}>
+                  <Button className="w-full" variant="secondary">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Download Invoice PDF
+                  </Button>
+                </Link>
+              )}
               <Link href="/">
                 <Button className="w-full" variant="outline">
                   <Home className="mr-2 h-4 w-4" />

@@ -32,6 +32,15 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
   const [secureSettings, setSecureSettings] = useState<SecureSettings>({
     razorpaySecretKey: "",
+    smtpHost: "",
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUser: "",
+    smtpPass: "",
+    smtpFromName: "",
+    smtpFromEmail: "",
+    adminNotificationEmail: "",
+    appBaseUrl: "",
   })
 
   useEffect(() => {
@@ -39,7 +48,20 @@ export default function SettingsPage() {
       try {
         const [data, secureData] = await Promise.all([
           getSettings(),
-          isAdminUser ? getSecureSettings() : Promise.resolve({ razorpaySecretKey: "" }),
+          isAdminUser
+            ? getSecureSettings()
+            : Promise.resolve({
+                razorpaySecretKey: "",
+                smtpHost: "",
+                smtpPort: 587,
+                smtpSecure: false,
+                smtpUser: "",
+                smtpPass: "",
+                smtpFromName: "",
+                smtpFromEmail: "",
+                adminNotificationEmail: "",
+                appBaseUrl: "",
+              }),
         ])
         setSettings(data)
         setSecureSettings(secureData)
@@ -134,6 +156,27 @@ export default function SettingsPage() {
       setUploadingBannerIndex(null)
       e.target.value = ""
     }
+  }
+
+  const emailPreviewValues: Record<string, string> = {
+    userName: "Sukumar",
+    bookingId: "BK-2026-000145",
+    invoiceNumber: "INV-2026-000145",
+    listingName: "Main Function Hall",
+    dates: "2026-03-10",
+    slots: "Evening Slot",
+    allocatedUnits: "Room 101, Bed 2",
+    amountPaid: "5000.00",
+    invoiceLink: "https://example.com/invoice/INV-2026-000145",
+    supportLink: "https://example.com/support",
+  }
+
+  const placeholderKeys = Object.keys(emailPreviewValues)
+
+  function renderTemplatePreview(template: string) {
+    return Object.entries(emailPreviewValues).reduce((result, [key, value]) => {
+      return result.split(`{${key}}`).join(value)
+    }, template || "")
   }
 
   if (loading) {
@@ -342,6 +385,86 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Email Templates</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground">
+              Customize booking confirmation email text. Use placeholders to auto-fill
+              booking data.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Label>Booking Confirmation Subject</Label>
+              <Input
+                value={settings.bookingEmailSubjectTemplate || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    bookingEmailSubjectTemplate: e.target.value,
+                  })
+                }
+                placeholder="Booking Confirmed - {invoiceNumber}"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Booking Confirmation HTML</Label>
+              <Textarea
+                rows={8}
+                value={settings.bookingEmailHtmlTemplate || ""}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    bookingEmailHtmlTemplate: e.target.value,
+                  })
+                }
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {placeholderKeys.map((key) => (
+                <span
+                  key={key}
+                  className="rounded border bg-muted px-2 py-1 text-xs text-muted-foreground"
+                >
+                  {`{${key}}`}
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setSettings({
+                    ...settings,
+                    bookingEmailSubjectTemplate:
+                      DEFAULT_SETTINGS.bookingEmailSubjectTemplate || "",
+                    bookingEmailHtmlTemplate:
+                      DEFAULT_SETTINGS.bookingEmailHtmlTemplate || "",
+                  })
+                }
+              >
+                Reset Template to Default
+              </Button>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="mb-2 text-xs font-medium text-foreground">Preview Subject</p>
+              <p className="mb-3 text-sm text-muted-foreground">
+                {renderTemplatePreview(settings.bookingEmailSubjectTemplate || "")}
+              </p>
+              <p className="mb-2 text-xs font-medium text-foreground">Preview Body</p>
+              <div
+                className="prose prose-sm max-w-none text-foreground"
+                dangerouslySetInnerHTML={{
+                  __html: renderTemplatePreview(settings.bookingEmailHtmlTemplate || ""),
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Razorpay Configuration</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -392,6 +515,117 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {isAdminUser && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">SMTP Configuration</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label>SMTP Host</Label>
+                <Input
+                  value={secureSettings.smtpHost}
+                  onChange={(e) =>
+                    setSecureSettings({ ...secureSettings, smtpHost: e.target.value })
+                  }
+                  placeholder="smtp.gmail.com"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>SMTP Port</Label>
+                <Input
+                  type="number"
+                  value={secureSettings.smtpPort}
+                  onChange={(e) =>
+                    setSecureSettings({
+                      ...secureSettings,
+                      smtpPort: Number(e.target.value) || 587,
+                    })
+                  }
+                  placeholder="587"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>SMTP Secure</Label>
+                <Input
+                  value={String(secureSettings.smtpSecure)}
+                  onChange={(e) =>
+                    setSecureSettings({
+                      ...secureSettings,
+                      smtpSecure: e.target.value.toLowerCase() === "true",
+                    })
+                  }
+                  placeholder="true / false"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>SMTP User</Label>
+                <Input
+                  value={secureSettings.smtpUser}
+                  onChange={(e) =>
+                    setSecureSettings({ ...secureSettings, smtpUser: e.target.value })
+                  }
+                  placeholder="username"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>SMTP Password</Label>
+                <Input
+                  type="password"
+                  value={secureSettings.smtpPass}
+                  onChange={(e) =>
+                    setSecureSettings({ ...secureSettings, smtpPass: e.target.value })
+                  }
+                  placeholder="app password"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>SMTP From Name</Label>
+                <Input
+                  value={secureSettings.smtpFromName}
+                  onChange={(e) =>
+                    setSecureSettings({ ...secureSettings, smtpFromName: e.target.value })
+                  }
+                  placeholder="Anga Function Hall"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>SMTP From Email</Label>
+                <Input
+                  value={secureSettings.smtpFromEmail}
+                  onChange={(e) =>
+                    setSecureSettings({ ...secureSettings, smtpFromEmail: e.target.value })
+                  }
+                  placeholder="noreply@example.com"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Admin Notification Email (Optional)</Label>
+                <Input
+                  value={secureSettings.adminNotificationEmail}
+                  onChange={(e) =>
+                    setSecureSettings({
+                      ...secureSettings,
+                      adminNotificationEmail: e.target.value,
+                    })
+                  }
+                  placeholder="admin@example.com"
+                />
+              </div>
+              <div className="flex flex-col gap-2 sm:col-span-2">
+                <Label>App Base URL</Label>
+                <Input
+                  value={secureSettings.appBaseUrl}
+                  onChange={(e) =>
+                    setSecureSettings({ ...secureSettings, appBaseUrl: e.target.value })
+                  }
+                  placeholder="https://your-domain.com"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="flex justify-end">
           <Button type="submit" disabled={saving}>

@@ -33,6 +33,7 @@ import type {
   AttendanceSchedule,
   AttendanceEntry,
   AuditLog,
+  Invoice,
 } from "./types"
 import { DEFAULT_SETTINGS } from "./constants"
 
@@ -363,19 +364,77 @@ export async function updateSettings(data: Partial<SiteSettings>) {
 }
 
 export async function getSecureSettings(): Promise<SecureSettings> {
-  const snap = await getDoc(doc(db, "secureSettings", "razorpay"))
-  if (snap.exists()) {
-    const data = snap.data() as Partial<SecureSettings>
-    return {
-      razorpaySecretKey: data.razorpaySecretKey || "",
-    }
+  const [razorpaySnap, smtpSnap] = await Promise.all([
+    getDoc(doc(db, "secureSettings", "razorpay")),
+    getDoc(doc(db, "secureSettings", "smtp")),
+  ])
+  const razorpayData = razorpaySnap.exists()
+    ? (razorpaySnap.data() as Partial<SecureSettings>)
+    : {}
+  const smtpData = smtpSnap.exists()
+    ? (smtpSnap.data() as Partial<SecureSettings>)
+    : {}
+
+  return {
+    razorpaySecretKey: razorpayData.razorpaySecretKey || "",
+    smtpHost: smtpData.smtpHost || "",
+    smtpPort: Number(smtpData.smtpPort || 587),
+    smtpSecure: Boolean(smtpData.smtpSecure || false),
+    smtpUser: smtpData.smtpUser || "",
+    smtpPass: smtpData.smtpPass || "",
+    smtpFromName: smtpData.smtpFromName || "",
+    smtpFromEmail: smtpData.smtpFromEmail || "",
+    adminNotificationEmail: smtpData.adminNotificationEmail || "",
+    appBaseUrl: smtpData.appBaseUrl || "",
   }
-  return { razorpaySecretKey: "" }
 }
 
 export async function updateSecureSettings(data: Partial<SecureSettings>) {
-  const secureRef = doc(db, "secureSettings", "razorpay")
-  await setDoc(secureRef, data, { merge: true })
+  const { razorpaySecretKey, ...smtpFields } = data
+  if (typeof razorpaySecretKey === "string") {
+    const razorpayRef = doc(db, "secureSettings", "razorpay")
+    await setDoc(razorpayRef, { razorpaySecretKey }, { merge: true })
+  }
+
+  const smtpPayload: Partial<SecureSettings> = {}
+  const smtpKeys: (keyof SecureSettings)[] = [
+    "smtpHost",
+    "smtpPort",
+    "smtpSecure",
+    "smtpUser",
+    "smtpPass",
+    "smtpFromName",
+    "smtpFromEmail",
+    "adminNotificationEmail",
+    "appBaseUrl",
+  ]
+  for (const key of smtpKeys) {
+    if (key in smtpFields) {
+      smtpPayload[key] = smtpFields[key]
+    }
+  }
+  if (Object.keys(smtpPayload).length > 0) {
+    const smtpRef = doc(db, "secureSettings", "smtp")
+    await setDoc(smtpRef, smtpPayload, { merge: true })
+  }
+}
+
+// =====================
+// Invoices
+// =====================
+export async function getInvoice(id: string): Promise<Invoice | null> {
+  const snap = await getDoc(doc(db, "invoices", id))
+  return snap.exists() ? docToType<Invoice>(snap) : null
+}
+
+export async function getUserInvoices(userId: string): Promise<Invoice[]> {
+  const q = query(
+    collection(db, "invoices"),
+    where("userId", "==", userId),
+    orderBy("issuedAt", "desc")
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => docToType<Invoice>(d))
 }
 
 // =====================

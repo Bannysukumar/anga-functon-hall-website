@@ -13,6 +13,7 @@ import type { Listing, Branch, SiteSettings, SelectedAddon } from "@/lib/types"
 import { DEFAULT_SETTINGS, LISTING_TYPE_LABELS } from "@/lib/constants"
 import { Header } from "@/components/layout/header"
 import { Footer } from "@/components/layout/footer"
+import { verifyPaymentAndConfirmBooking } from "@/lib/booking-functions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -71,6 +72,7 @@ export default function CheckoutPage() {
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
+  const [confirming, setConfirming] = useState(false)
 
   const [couponCode, setCouponCode] = useState("")
   const [couponDiscount, setCouponDiscount] = useState(0)
@@ -190,13 +192,11 @@ export default function CheckoutPage() {
       }
 
       const finalTotal = checkout.totalAmount - couponDiscount
-      const token = await user.getIdToken()
-
       const intentResponse = await fetch("/api/bookings/create-intent", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${await user.getIdToken()}`,
         },
         body: JSON.stringify({
           listingId: checkout.listingId,
@@ -251,42 +251,15 @@ export default function CheckoutPage() {
           razorpay_signature: string
         }) => {
           try {
-            const verifyResponse = await fetch("/api/payments/verify", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                intentId: intentResult.intentId,
-                razorpayOrderId: response.razorpay_order_id,
-                razorpayPaymentId: response.razorpay_payment_id,
-                razorpaySignature: response.razorpay_signature,
-              }),
+            setConfirming(true)
+            const finalizeResult = await verifyPaymentAndConfirmBooking({
+              intentId: intentResult.intentId,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
             })
-            const verifyResult = await verifyResponse.json()
-            if (!verifyResponse.ok || !verifyResult?.verified) {
-              throw new Error("Payment verification failed. Please contact support.")
-            }
-
-            const finalizeResponse = await fetch("/api/bookings/finalize", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                intentId: intentResult.intentId,
-                razorpayOrderId: response.razorpay_order_id,
-                razorpayPaymentId: response.razorpay_payment_id,
-              }),
-            })
-            const finalizeResult = await finalizeResponse.json()
-            if (!finalizeResponse.ok || !finalizeResult?.bookingId) {
-              throw new Error(
-                finalizeResult?.error ||
-                  "Payment captured but booking finalization failed."
-              )
+            if (!finalizeResult?.bookingId) {
+              throw new Error("Payment verified but booking confirmation failed.")
             }
 
             sessionStorage.removeItem("checkoutData")
@@ -294,15 +267,20 @@ export default function CheckoutPage() {
               "bookingConfirmation",
               JSON.stringify({
                 bookingId: finalizeResult.bookingId,
+                invoiceId: finalizeResult.invoiceId,
                 invoiceNumber: finalizeResult.invoiceNumber,
+                invoicePdfUrl: finalizeResult.invoicePdfUrl || "",
+                allocatedLabels: finalizeResult.allocatedLabels || [],
+                emailStatus: finalizeResult.emailStatus || "pending",
                 listingTitle: listing.title,
-                totalAmount: finalizeResult.totalAmount,
-                advancePaid: finalizeResult.advancePaid,
+                totalAmount: intentResult.pricing.totalAmount,
+                advancePaid: intentResult.pricing.amountToPay,
               })
             )
 
             router.push("/checkout/success")
           } catch (error) {
+            setConfirming(false)
             toast.error(
               error instanceof Error
                 ? error.message
@@ -313,6 +291,7 @@ export default function CheckoutPage() {
         modal: {
           ondismiss: () => {
             setProcessing(false)
+            setConfirming(false)
           },
         },
         theme: {
@@ -541,11 +520,13 @@ export default function CheckoutPage() {
             <Button
               size="lg"
               onClick={handlePayment}
-              disabled={processing}
+              disabled={processing || confirming}
               className="w-full"
             >
-              {processing
-                ? "Processing..."
+              {confirming
+                ? "Confirming your booking..."
+                : processing
+                  ? "Processing..."
                 : `Pay \u20B9${amountToPay.toLocaleString("en-IN")}`}
             </Button>
           </div>
