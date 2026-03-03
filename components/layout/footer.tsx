@@ -46,6 +46,12 @@ export function Footer() {
               >
                 Dining Halls
               </Link>
+              <Link
+                href="/contact"
+                className="text-sm text-muted-foreground hover:text-primary transition-colors"
+              >
+                Contact Us
+              </Link>
             </div>
           </div>
 

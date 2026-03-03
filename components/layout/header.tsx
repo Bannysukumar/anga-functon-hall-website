@@ -21,6 +21,7 @@ import { useState } from "react"
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/explore", label: "Explore" },
+  { href: "/contact", label: "Contact" },
 ]
 
 export function Header() {
@@ -66,29 +67,27 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:px-8">
-        <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-2">
-            <SiteLogo />
-          </Link>
+        <Link href="/" className="flex items-center gap-2">
+          <SiteLogo />
+        </Link>
 
-          <nav className="hidden items-center gap-6 md:flex">
+        <div className="flex items-center gap-3">
+          <nav className="hidden items-center rounded-full border bg-secondary/40 p-1 md:flex">
             {NAV_LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`text-sm font-medium transition-colors hover:text-primary ${
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
                   pathname === link.href
-                    ? "text-primary"
-                    : "text-muted-foreground"
+                    ? "bg-background text-primary shadow-sm"
+                    : "text-muted-foreground hover:text-primary"
                 }`}
               >
                 {link.label}
               </Link>
             ))}
           </nav>
-        </div>
 
-        <div className="flex items-center gap-3">
           {!loading && (
             <>
               {user ? (
@@ -150,14 +149,14 @@ export function Header() {
                 </DropdownMenu>
               ) : (
                 <div className="hidden items-center gap-2 sm:flex">
-                  <Link href="/login">
-                    <Button variant="ghost" size="sm">
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href="/login">
                       Sign In
-                    </Button>
-                  </Link>
-                  <Link href="/signup">
-                    <Button size="sm">Get Started</Button>
-                  </Link>
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm">
+                    <Link href="/signup">Get Started</Link>
+                  </Button>
                 </div>
               )}
             </>
@@ -180,34 +179,70 @@ export function Header() {
       </div>
 
       {mobileOpen && (
-        <div className="border-t bg-background p-4 md:hidden">
-          <nav className="flex flex-col gap-3">
+        <div className="border-t bg-background/95 p-4 backdrop-blur md:hidden">
+          <nav className="mx-auto flex max-w-7xl flex-col gap-3 rounded-xl border bg-secondary/30 p-3 shadow-sm">
             {NAV_LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileOpen(false)}
-                className={`text-sm font-medium transition-colors ${
+                className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                   pathname === link.href
-                    ? "text-primary"
-                    : "text-muted-foreground"
+                    ? "bg-background text-primary shadow-sm"
+                    : "text-muted-foreground hover:bg-background/70 hover:text-primary"
                 }`}
               >
                 {link.label}
               </Link>
             ))}
+            {!loading && user && (
+              <div className="flex flex-col gap-2 border-t pt-3">
+                <Link href="/dashboard" onClick={() => setMobileOpen(false)}>
+                  <Button variant="outline" size="sm" className="w-full justify-start">
+                    <LayoutDashboard className="h-4 w-4" />
+                    Dashboard
+                  </Button>
+                </Link>
+                <Link href="/dashboard/profile" onClick={() => setMobileOpen(false)}>
+                  <Button variant="outline" size="sm" className="w-full justify-start">
+                    <User className="h-4 w-4" />
+                    Profile
+                  </Button>
+                </Link>
+                {canAccessAdminPanel && (
+                  <Link href={operationsHref} onClick={() => setMobileOpen(false)}>
+                    <Button variant="outline" size="sm" className="w-full justify-start">
+                      <Shield className="h-4 w-4" />
+                      Operations Panel
+                    </Button>
+                  </Link>
+                )}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={async () => {
+                    setMobileOpen(false)
+                    await handleLogout()
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Log out
+                </Button>
+              </div>
+            )}
             {!loading && !user && (
-              <div className="flex flex-col gap-2 pt-2 border-t">
-                <Link href="/login" onClick={() => setMobileOpen(false)}>
-                  <Button variant="outline" size="sm" className="w-full">
+              <div className="flex flex-col gap-2 border-t pt-3">
+                <Button asChild variant="outline" size="sm" className="w-full">
+                  <Link href="/login" onClick={() => setMobileOpen(false)}>
                     Sign In
-                  </Button>
-                </Link>
-                <Link href="/signup" onClick={() => setMobileOpen(false)}>
-                  <Button size="sm" className="w-full">
+                  </Link>
+                </Button>
+                <Button asChild size="sm" className="w-full">
+                  <Link href="/signup" onClick={() => setMobileOpen(false)}>
                     Get Started
-                  </Button>
-                </Link>
+                  </Link>
+                </Button>
               </div>
             )}
           </nav>

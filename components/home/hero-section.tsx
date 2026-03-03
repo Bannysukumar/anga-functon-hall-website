@@ -58,18 +58,18 @@ export function HeroSection() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-4">
-            <Link href="/explore">
-              <Button size="lg" className="gap-2">
+            <Button asChild size="lg" className="gap-2">
+              <Link href="/explore">
                 <Search className="h-4 w-4" />
                 Explore Venues
-              </Button>
-            </Link>
-            <Link href="/signup">
-              <Button size="lg" variant="outline" className="gap-2">
+              </Link>
+            </Button>
+            <Button asChild size="lg" variant="outline" className="gap-2">
+              <Link href="/signup">
                 Get Started
                 <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
 
           {visibleImages.length > 0 && (
