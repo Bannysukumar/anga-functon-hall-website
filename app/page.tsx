@@ -3,6 +3,7 @@ import { Footer } from "@/components/layout/footer"
 import { HeroSection } from "@/components/home/hero-section"
 import { CategoryCards } from "@/components/home/category-cards"
 import { FeaturedListings } from "@/components/home/featured-listings"
+import { WhatsAppFloat } from "@/components/home/whatsapp-float"
 
 export default function HomePage() {
   return (
@@ -23,6 +24,7 @@ export default function HomePage() {
         <CategoryCards />
         <FeaturedListings />
       </main>
+      <WhatsAppFloat />
       <Footer />
     </div>
   )

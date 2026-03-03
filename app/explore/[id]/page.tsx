@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS } from "@/lib/constants"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { Header } from "@/components/layout/header"
 import { Footer } from "@/components/layout/footer"
+import { WhatsAppFloat } from "@/components/home/whatsapp-float"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -243,6 +244,8 @@ export default function ListingDetailPage() {
   }
 
   if (!listing) return null
+
+  const whatsappMessage = `Hi Anga Function Hall, I am interested in booking ${listing.title}. Please share details.`
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -621,6 +624,7 @@ export default function ListingDetailPage() {
           </div>
         </div>
       </main>
+      <WhatsAppFloat message={whatsappMessage} />
       <Footer />
     </div>
   )
