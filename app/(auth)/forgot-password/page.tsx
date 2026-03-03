@@ -35,7 +35,7 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-sm flex flex-col gap-6">
         <Link href="/" className="flex items-center justify-center gap-2">
           <Building2 className="h-7 w-7 text-primary" />
-          <span className="text-lg font-bold text-foreground">VenueBook</span>
+          <span className="text-lg font-bold text-foreground">Anga Function Hall</span>
         </Link>
 
         {sent ? (

@@ -9,7 +9,7 @@ export default function LoginPage() {
         <Link href="/" className="flex items-center gap-2">
           <Building2 className="h-8 w-8 text-primary-foreground" />
           <span className="text-xl font-bold text-primary-foreground">
-            VenueBook
+            Anga Function Hall
           </span>
         </Link>
         <div className="flex flex-col gap-4">
@@ -30,7 +30,7 @@ export default function LoginPage() {
           <div className="mb-8 lg:hidden">
             <Link href="/" className="flex items-center justify-center gap-2">
               <Building2 className="h-7 w-7 text-primary" />
-              <span className="text-lg font-bold text-foreground">VenueBook</span>
+              <span className="text-lg font-bold text-foreground">Anga Function Hall</span>
             </Link>
           </div>
           <LoginForm />

@@ -60,14 +60,14 @@ export const PAYMENT_STATUS_COLORS: Record<string, string> = {
 export const DEFAULT_SETTINGS = {
   serviceFeePercent: 5,
   taxPercent: 18,
-  contactEmail: "contact@venue.com",
-  contactPhone: "+91 9876543210",
+  contactEmail: "angafunctonhall@gmail.com",
+  contactPhone: "098855 55729",
   refundPolicyText:
     "Cancellations made 48 hours before check-in are eligible for a full refund. Late cancellations may be subject to partial refunds based on the listing's policy.",
   minAdvancePercent: 25,
   maxBookingWindowDays: 90,
   razorpayKeyId: "",
-  razorpayDisplayName: "VenueBook",
+  razorpayDisplayName: "Anga Function Hall",
   heroBanners: [],
   featuredListingIds: [],
 }

@@ -3,9 +3,9 @@ import { Header } from "@/components/layout/header"
 import { Footer } from "@/components/layout/footer"
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | VenueBook",
+  title: "Privacy Policy | Anga Function Hall",
   description:
-    "Read how VenueBook collects, uses, stores, and protects your personal data.",
+    "Read how Anga Function Hall collects, uses, stores, and protects your personal data.",
 }
 
 export default function PrivacyPolicyPage() {
@@ -124,10 +124,10 @@ export default function PrivacyPolicyPage() {
                 <p>
                   For privacy concerns, contact us at{" "}
                   <a
-                    href="mailto:contact@venuebook.in"
+                    href="mailto:angafunctonhall@gmail.com"
                     className="font-medium text-primary underline-offset-4 hover:underline"
                   >
-                    contact@venuebook.in
+                    angafunctonhall@gmail.com
                   </a>
                   .
                 </p>

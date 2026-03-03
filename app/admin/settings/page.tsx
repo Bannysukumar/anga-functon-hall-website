@@ -244,7 +244,7 @@ export default function SettingsPage() {
                     razorpayDisplayName: e.target.value,
                   })
                 }
-                placeholder="VenueBook"
+                placeholder="Anga Function Hall"
               />
             </div>
           </CardContent>

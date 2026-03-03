@@ -3,9 +3,9 @@ import { Header } from "@/components/layout/header"
 import { Footer } from "@/components/layout/footer"
 
 export const metadata: Metadata = {
-  title: "Terms and Conditions | VenueBook",
+  title: "Terms and Conditions | Anga Function Hall",
   description:
-    "Read the terms and conditions for using VenueBook and booking services.",
+    "Read the terms and conditions for using Anga Function Hall and booking services.",
 }
 
 export default function TermsAndConditionsPage() {
@@ -30,7 +30,7 @@ export default function TermsAndConditionsPage() {
                   1. Acceptance of Terms
                 </h2>
                 <p>
-                  By accessing or using VenueBook, you agree to these Terms and
+                  By accessing or using Anga Function Hall, you agree to these Terms and
                   Conditions. If you do not agree, please do not use the
                   platform.
                 </p>
@@ -96,7 +96,7 @@ export default function TermsAndConditionsPage() {
                   7. Admin Rights and Enforcement
                 </h2>
                 <p>
-                  VenueBook may suspend or block accounts that violate terms,
+                  Anga Function Hall may suspend or block accounts that violate terms,
                   pose security risks, or engage in abuse or fraud.
                 </p>
               </section>
@@ -106,7 +106,7 @@ export default function TermsAndConditionsPage() {
                   8. Limitation of Liability
                 </h2>
                 <p>
-                  To the extent permitted by law, VenueBook is not liable for
+                  To the extent permitted by law, Anga Function Hall is not liable for
                   indirect or consequential losses arising from platform use,
                   third-party provider downtime, or force majeure events.
                 </p>
@@ -130,10 +130,10 @@ export default function TermsAndConditionsPage() {
                 <p>
                   For legal or policy questions, contact{" "}
                   <a
-                    href="mailto:contact@venuebook.in"
+                    href="mailto:angafunctonhall@gmail.com"
                     className="font-medium text-primary underline-offset-4 hover:underline"
                   >
-                    contact@venuebook.in
+                    angafunctonhall@gmail.com
                   </a>
                   .
                 </p>

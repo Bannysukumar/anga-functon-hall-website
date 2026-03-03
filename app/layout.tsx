@@ -9,7 +9,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'VenueBook - Book Premium Venues & Services',
+  title: 'Anga Function Hall - Book Premium Venues & Services',
   description: 'Book function halls, rooms, dormitories, dining halls and more. Instant availability, secure payments, and hassle-free booking experience.',
   generator: 'v0.app',
   icons: {

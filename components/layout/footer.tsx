@@ -9,7 +9,7 @@ export function Footer() {
           <div className="flex flex-col gap-4">
             <Link href="/" className="flex items-center gap-2">
               <Building2 className="h-6 w-6 text-primary" />
-              <span className="text-lg font-bold text-foreground">VenueBook</span>
+              <span className="text-lg font-bold text-foreground">Anga Function Hall</span>
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Your one-stop destination for booking premium venues and
@@ -92,15 +92,15 @@ export function Footer() {
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Mail className="h-4 w-4 shrink-0" />
-                <span>contact@venuebook.in</span>
+                <span>angafunctonhall@gmail.com</span>
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Phone className="h-4 w-4 shrink-0" />
-                <span>+91 98765 43210</span>
+                <span>098855 55729</span>
               </div>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <MapPin className="h-4 w-4 shrink-0" />
-                <span>India</span>
+                <span>Bhadrachalam, Telangana</span>
               </div>
             </div>
           </div>
@@ -108,7 +108,7 @@ export function Footer() {
 
         <div className="mt-8 border-t pt-8 text-center">
           <p className="text-xs text-muted-foreground">
-            {`\u00A9 ${new Date().getFullYear()} VenueBook. All rights reserved.`}
+            {`\u00A9 ${new Date().getFullYear()} Anga Function Hall. All rights reserved.`}
           </p>
         </div>
       </div>

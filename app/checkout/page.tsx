@@ -235,7 +235,10 @@ export default function CheckoutPage() {
         key: intentResult.keyId,
         amount: intentResult.amount,
         currency: intentResult.currency || "INR",
-        name: intentResult.displayName || settings.razorpayDisplayName || "VenueBook",
+        name:
+          intentResult.displayName ||
+          settings.razorpayDisplayName ||
+          "Anga Function Hall",
         description: `Booking: ${listing.title}`,
         order_id: intentResult.orderId,
         prefill: {

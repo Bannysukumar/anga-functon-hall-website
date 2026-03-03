@@ -132,8 +132,11 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
       }
       setForm({ ...form, images: [...form.images, ...urls] })
       toast.success(`${urls.length} image(s) uploaded`)
-    } catch {
-      toast.error("Failed to upload images")
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to upload images"
+      toast.error(message)
+      console.error("Listing image upload failed:", error)
     } finally {
       setUploading(false)
     }

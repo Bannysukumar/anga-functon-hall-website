@@ -192,7 +192,7 @@ export async function POST(request: Request) {
       amount: order.amount,
       currency: order.currency,
       pricing,
-      displayName: settings.razorpayDisplayName || "VenueBook",
+      displayName: settings.razorpayDisplayName || "Anga Function Hall",
       expiresAt: expiresAt.toDate().toISOString(),
     })
   } catch {

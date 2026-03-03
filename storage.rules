@@ -5,29 +5,15 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    function userExists() {
-      return signedIn() &&
-        firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
-    }
-
-    function isAdmin() {
-      return signedIn() &&
-        userExists() &&
-        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "admin";
-    }
-
-    function isBlocked() {
-      return userExists() &&
-        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isBlocked == true;
-    }
-
     match /listings/{listingId}/{allPaths=**} {
       allow read: if true;
-      allow write: if isAdmin() && !isBlocked();
+      allow write: if signedIn() &&
+        request.resource != null &&
+        request.resource.contentType.matches("image/.*");
     }
 
     match /users/{uid}/{allPaths=**} {
-      allow read, write: if signedIn() && request.auth.uid == uid && !isBlocked();
+      allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
     match /{allPaths=**} {
