@@ -7,7 +7,7 @@ import {
   updateSecureSettings,
   updateSettings,
 } from "@/lib/firebase-db"
-import type { SecureSettings, SiteSettings } from "@/lib/types"
+import type { SecureSettings, SiteSettings, SocialLink } from "@/lib/types"
 import { DEFAULT_SETTINGS } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,6 +22,7 @@ import {
 } from "@/lib/firebase-storage"
 import { toast } from "sonner"
 import { useAuth } from "@/lib/hooks/use-auth"
+import { Trash2 } from "lucide-react"
 
 export default function SettingsPage() {
   const { isAdminUser } = useAuth()
@@ -177,6 +178,36 @@ export default function SettingsPage() {
     return Object.entries(emailPreviewValues).reduce((result, [key, value]) => {
       return result.split(`{${key}}`).join(value)
     }, template || "")
+  }
+
+  function updateSocialLink(index: number, field: keyof SocialLink, value: string) {
+    setSettings((prev) => {
+      const next = [...(prev.socialLinks || [])]
+      next[index] = {
+        platform: next[index]?.platform || "custom",
+        label: next[index]?.label || "",
+        url: next[index]?.url || "",
+        [field]: value,
+      }
+      return { ...prev, socialLinks: next }
+    })
+  }
+
+  function addSocialLink() {
+    setSettings((prev) => ({
+      ...prev,
+      socialLinks: [
+        ...(prev.socialLinks || []),
+        { platform: "custom", label: "New Link", url: "" },
+      ],
+    }))
+  }
+
+  function removeSocialLink(index: number) {
+    setSettings((prev) => ({
+      ...prev,
+      socialLinks: (prev.socialLinks || []).filter((_, i) => i !== index),
+    }))
   }
 
   if (loading) {
@@ -343,6 +374,62 @@ export default function SettingsPage() {
                   setSettings({ ...settings, contactPhone: e.target.value })
                 }
               />
+            </div>
+            <div className="sm:col-span-2 mt-2 border-t pt-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <Label className="text-sm font-medium">Social Links</Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Add, edit, or delete footer social links.
+                  </p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addSocialLink}>
+                  Add Link
+                </Button>
+              </div>
+              <div className="flex flex-col gap-3">
+                {(settings.socialLinks || []).map((item, index) => (
+                  <div
+                    key={`${item.platform}-${index}`}
+                    className="grid gap-2 rounded-lg border p-3 sm:grid-cols-12"
+                  >
+                    <div className="sm:col-span-3">
+                      <Input
+                        value={item.platform}
+                        onChange={(e) =>
+                          updateSocialLink(index, "platform", e.target.value)
+                        }
+                        placeholder="platform"
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <Input
+                        value={item.label}
+                        onChange={(e) => updateSocialLink(index, "label", e.target.value)}
+                        placeholder="label"
+                      />
+                    </div>
+                    <div className="sm:col-span-5">
+                      <Input
+                        value={item.url}
+                        onChange={(e) => updateSocialLink(index, "url", e.target.value)}
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => removeSocialLink(index)}
+                        aria-label="Delete social link"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>

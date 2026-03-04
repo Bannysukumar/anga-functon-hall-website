@@ -99,6 +99,23 @@ export const DEFAULT_SETTINGS = {
   checkoutEmailSubjectTemplate: "Checkout Confirmed - {bookingId}",
   checkoutEmailHtmlTemplate:
     "<p>Hello {userName},</p><p>Your checkout is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Allocated:</strong> {allocation}</p><p><strong>Check-out time:</strong> {checkOutAt}</p><p>Thank you for choosing Anga Function Hall.</p>",
+  socialLinks: [
+    {
+      platform: "instagram",
+      label: "Instagram",
+      url: "https://www.instagram.com/angafunction/",
+    },
+    {
+      platform: "facebook",
+      label: "Facebook",
+      url: "https://www.facebook.com/profile.php?viewas=100000686899395&id=61586457726808",
+    },
+    {
+      platform: "youtube",
+      label: "YouTube",
+      url: "https://www.youtube.com/@angafunctonhall",
+    },
+  ],
 }
 
 export const AMENITY_OPTIONS = [

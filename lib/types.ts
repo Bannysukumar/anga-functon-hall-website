@@ -256,6 +256,12 @@ export interface HeroBanner {
   subtitle: string
 }
 
+export interface SocialLink {
+  platform: string
+  label: string
+  url: string
+}
+
 export interface SiteSettings {
   serviceFeePercent: number
   taxPercent: number
@@ -273,6 +279,7 @@ export interface SiteSettings {
   bookingEmailHtmlTemplate?: string
   checkoutEmailSubjectTemplate?: string
   checkoutEmailHtmlTemplate?: string
+  socialLinks: SocialLink[]
 }
 
 export interface SecureSettings {
