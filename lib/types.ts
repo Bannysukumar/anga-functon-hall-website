@@ -45,6 +45,8 @@ export interface ListingAddon {
 export interface Listing {
   id: string
   roomId?: string
+  roomNumber?: string
+  roomTypeDetail?: "ac" | "non_ac"
   branchId: string
   title: string
   type: ListingType
@@ -97,6 +99,8 @@ export interface SelectedAddon {
 export interface Booking {
   id: string
   roomId?: string
+  roomNumber?: string
+  roomTypeDetail?: "ac" | "non_ac"
   userId: string
   listingId: string
   branchId: string

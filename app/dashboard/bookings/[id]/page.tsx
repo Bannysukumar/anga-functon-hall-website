@@ -223,6 +223,18 @@ export default function BookingDetailPage() {
                   </p>
                 </div>
               </div>
+              {booking.listingType === "room" && (
+                <div className="flex items-start gap-3">
+                  <Hash className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Room No / Type</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {booking.roomNumber || "N/A"} /{" "}
+                      {booking.roomTypeDetail === "non_ac" ? "Non AC" : "AC"}
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="flex items-start gap-3">
                 <CalendarDays className="mt-0.5 h-4 w-4 text-muted-foreground" />
                 <div>

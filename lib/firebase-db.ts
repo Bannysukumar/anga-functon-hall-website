@@ -136,12 +136,17 @@ export async function createListing(
   if (data.type === "room" && !normalizedRoomId) {
     throw new Error("Room ID is required for room listings.")
   }
+  if (data.type === "room" && !String(data.roomNumber || "").trim()) {
+    throw new Error("Room number is required for room listings.")
+  }
   if (normalizedRoomId) {
     await ensureUniqueRoomId(normalizedRoomId)
   }
   const ref = await addDoc(collection(db, "listings"), {
     ...data,
     roomId: normalizedRoomId || "",
+    roomNumber: String(data.roomNumber || "").trim(),
+    roomTypeDetail: data.roomTypeDetail || "ac",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -153,12 +158,17 @@ export async function updateListing(id: string, data: Partial<Listing>) {
   if (data.type === "room" && !normalizedRoomId) {
     throw new Error("Room ID is required for room listings.")
   }
+  if (data.type === "room" && !String(data.roomNumber || "").trim()) {
+    throw new Error("Room number is required for room listings.")
+  }
   if (normalizedRoomId) {
     await ensureUniqueRoomId(normalizedRoomId, id)
   }
   await updateDoc(doc(db, "listings", id), {
     ...data,
     roomId: normalizedRoomId || "",
+    roomNumber: String(data.roomNumber || "").trim(),
+    roomTypeDetail: data.roomTypeDetail || "ac",
     updatedAt: serverTimestamp(),
   })
 }

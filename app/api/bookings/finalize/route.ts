@@ -131,6 +131,9 @@ export async function POST(request: Request) {
         userId: decoded.uid,
         listingId: intent.listingId,
         roomId: String(listing?.roomId || ""),
+        roomNumber: String(listing?.roomNumber || ""),
+        roomTypeDetail:
+          String(listing?.roomTypeDetail || "ac") === "non_ac" ? "non_ac" : "ac",
         branchId: intent.branchId,
         listingType: listing?.type || "function_hall",
         listingTitle: listing?.title || "Listing",

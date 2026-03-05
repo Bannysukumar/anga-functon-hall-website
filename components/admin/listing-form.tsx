@@ -36,6 +36,8 @@ interface ListingFormProps {
 
 const DEFAULT_LISTING = {
   roomId: "",
+  roomNumber: "",
+  roomTypeDetail: "ac" as const,
   branchId: "",
   title: "",
   type: "function_hall" as ListingType,
@@ -65,6 +67,8 @@ function buildFormState(initialData?: Listing) {
     ...DEFAULT_LISTING,
     branchId: initialData.branchId || "",
     roomId: initialData.roomId || "",
+    roomNumber: initialData.roomNumber || "",
+    roomTypeDetail: initialData.roomTypeDetail || "ac",
     title: initialData.title || "",
     type: initialData.type || DEFAULT_LISTING.type,
     description: initialData.description || "",
@@ -223,6 +227,10 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
       toast.error("Unique Room ID is required for room listings")
       return
     }
+    if (form.type === "room" && !String(form.roomNumber || "").trim()) {
+      toast.error("Room number is required for room listings")
+      return
+    }
     const normalizedRoomId = String(form.roomId || "")
       .trim()
       .toUpperCase()
@@ -231,6 +239,7 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
       await onSave({
         ...(form as Omit<Listing, "id" | "createdAt" | "updatedAt">),
         roomId: normalizedRoomId,
+        roomNumber: String(form.roomNumber || "").trim(),
       })
       router.push("/admin/listings")
     } catch (error) {
@@ -296,6 +305,35 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
               Use the same Room ID for listings that represent the same physical room.
             </p>
           </div>
+          {form.type === "room" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label>Room Number *</Label>
+                <Input
+                  value={form.roomNumber}
+                  onChange={(e) => setForm({ ...form, roomNumber: e.target.value })}
+                  placeholder="101"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Room Type *</Label>
+                <Select
+                  value={form.roomTypeDetail}
+                  onValueChange={(v) =>
+                    setForm({ ...form, roomTypeDetail: v as "ac" | "non_ac" })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ac">AC</SelectItem>
+                    <SelectItem value="non_ac">Non AC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             <Label>Branch</Label>
             <Select

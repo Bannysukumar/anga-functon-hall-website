@@ -907,6 +907,8 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
                 userId: uid,
                 listingId: intent.listingId,
                 roomId: String(listing.roomId || ""),
+                roomNumber: String(listing.roomNumber || ""),
+                roomTypeDetail: String(listing.roomTypeDetail || "ac") === "non_ac" ? "non_ac" : "ac",
                 branchId: intent.branchId,
                 listingType: listing.type || "function_hall",
                 listingTitle: listing.title || "Listing",
