@@ -1,4 +1,5 @@
 import { adminAuth, adminDb } from "@/lib/server/firebase-admin"
+import { DEFAULT_SETTINGS } from "@/lib/constants"
 import type { Permission } from "@/lib/types"
 
 function readBearerToken(request: Request): string {
@@ -35,31 +36,39 @@ const PERMISSION_ALIASES: Record<Permission, Permission[]> = {
   CMS_EDIT: [],
   SETTINGS_EDIT: ["view_settings"],
   view_dashboard: [],
-  view_bookings: [],
-  create_booking: [],
-  edit_booking: [],
-  cancel_booking: [],
-  view_customers: [],
+  view_bookings: ["BOOKINGS_VIEW"],
+  create_booking: ["BOOKINGS_CREATE_MANUAL"],
+  edit_booking: ["BOOKINGS_UPDATE_STATUS"],
+  cancel_booking: ["BOOKINGS_UPDATE_STATUS"],
+  view_customers: ["USERS_VIEW"],
   create_customer: [],
   edit_customer: [],
-  view_payments: [],
+  view_payments: ["PAYMENTS_VIEW"],
   create_payment_receipt: [],
-  view_rooms: [],
-  check_in: [],
-  check_out: [],
+  view_rooms: ["LISTINGS_VIEW"],
+  check_in: ["BOOKINGS_UPDATE_STATUS"],
+  check_out: ["BOOKINGS_UPDATE_STATUS"],
   view_reports: [],
   export_reports: [],
-  view_settings: [],
+  view_settings: ["SETTINGS_EDIT"],
   view_calendar: ["view_bookings"],
   manage_visitors: ["view_customers", "edit_customer"],
-  send_whatsapp: ["edit_booking"],
-  manage_payment_reminders: ["view_payments"],
+  send_whatsapp: ["edit_booking", "BOOKINGS_UPDATE_STATUS"],
+  manage_payment_reminders: ["view_payments", "PAYMENTS_VIEW"],
 }
 
 function hasPermission(permissions: Permission[], required: Permission) {
   if (permissions.includes(required)) return true
   const aliases = PERMISSION_ALIASES[required] || []
   return aliases.some((alias) => permissions.includes(alias))
+}
+
+function getReceptionistPermissionsFromSettings(raw: unknown): Permission[] {
+  const configured = Array.isArray(raw)
+    ? raw.filter((item): item is Permission => typeof item === "string")
+    : []
+  if (configured.length > 0) return configured
+  return [...DEFAULT_SETTINGS.receptionistPermissions]
 }
 
 function isAdminEmail(email: string) {
@@ -101,9 +110,9 @@ export async function requirePermission(request: Request, permission: Permission
 
   if (role === "receptionist") {
     const settingsSnap = await adminDb.collection("settings").doc("global").get()
-    const receptionistPermissions = settingsSnap.exists
-      ? (settingsSnap.data()?.receptionistPermissions as Permission[] | undefined) || []
-      : []
+    const receptionistPermissions = getReceptionistPermissionsFromSettings(
+      settingsSnap.exists ? settingsSnap.data()?.receptionistPermissions : []
+    )
     if (!canAccessByRole(role, receptionistPermissions, permission)) {
       throw new Error("FORBIDDEN")
     }
