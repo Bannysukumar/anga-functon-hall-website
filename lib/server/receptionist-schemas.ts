@@ -58,3 +58,61 @@ export const updateBookingSchema = z.object({
   notes: z.string().trim().max(500).optional().or(z.literal("")),
   cancellationReason: z.string().trim().max(500).optional().or(z.literal("")),
 })
+
+export const receptionistCalendarQuerySchema = z.object({
+  view: z.enum(["month", "week", "day"]).optional().default("month"),
+  from: z.string().trim().optional().default(""),
+  to: z.string().trim().optional().default(""),
+  status: z.string().trim().optional().default("all"),
+  eventType: z.string().trim().optional().default("all"),
+})
+
+export const receptionistAvailabilityQuerySchema = z.object({
+  date: z.string().trim().min(10).max(25),
+  hallType: z.string().trim().optional().default("all"),
+})
+
+export const visitorLeadStatusSchema = z.enum([
+  "new",
+  "follow_up",
+  "interested",
+  "converted",
+  "not_interested",
+])
+
+export const visitorsQuerySchema = z.object({
+  status: visitorLeadStatusSchema.or(z.literal("all")).optional().default("all"),
+  eventType: z.string().trim().optional().default("all"),
+  from: z.string().trim().optional().default(""),
+  to: z.string().trim().optional().default(""),
+  search: z.string().trim().optional().default(""),
+  limit: z.coerce.number().int().min(1).max(300).optional().default(100),
+})
+
+export const createVisitorSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  phone: z.string().trim().min(6).max(20),
+  eventType: z.string().trim().min(1).max(60),
+  preferredDate: z.string().trim().min(8).max(25),
+  notes: z.string().trim().max(500).optional().or(z.literal("")),
+  visitDate: z.string().trim().optional().default(""),
+})
+
+export const updateVisitorSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  phone: z.string().trim().min(6).max(20).optional(),
+  eventType: z.string().trim().min(1).max(60).optional(),
+  preferredDate: z.string().trim().min(8).max(25).optional(),
+  notes: z.string().trim().max(500).optional().or(z.literal("")),
+  status: visitorLeadStatusSchema.optional(),
+})
+
+export const convertVisitorSchema = z.object({
+  listingId: z.string().trim().min(1).max(120),
+  functionDateTime: z.string().trim().min(1).max(60),
+  guestCount: z.coerce.number().int().min(1).max(100000).default(1),
+  totalAmount: z.coerce.number().min(1).max(10_000_000),
+  advanceAmount: z.coerce.number().min(0).max(10_000_000).default(0),
+  paymentMethod: z.string().trim().min(2).max(40).default("cash"),
+  notes: z.string().trim().max(500).optional().or(z.literal("")),
+})

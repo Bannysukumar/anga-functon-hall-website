@@ -86,6 +86,8 @@ export type BookingStatus =
   | "no_show"
 export type PaymentStatus =
   | "pending"
+  | "partial"
+  | "paid"
   | "advance_paid"
   | "fully_paid"
   | "refund_requested"
@@ -152,6 +154,8 @@ export interface Booking {
   cancelledAt: Timestamp | null
   refundAmount: number
   refundStatus: "none" | "requested" | "approved" | "processed"
+  whatsappStatus?: "pending" | "sent" | "failed" | "disabled"
+  whatsappSentAt?: Timestamp | null
   createdAt: Timestamp
   updatedAt: Timestamp
 }
@@ -219,7 +223,7 @@ export interface AppUser {
   photoURL: string
   favorites: string[]
   isBlocked: boolean
-  role?: "user" | "admin"
+  role?: "user" | "admin" | "receptionist"
   createdAt: Timestamp
 }
 
@@ -287,6 +291,8 @@ export interface SiteSettings {
   checkoutEmailSubjectTemplate?: string
   checkoutEmailHtmlTemplate?: string
   socialLinks: SocialLink[]
+  receptionistPermissions?: Permission[]
+  paymentRemindersEnabled?: boolean
 }
 
 export interface SecureSettings {
@@ -322,6 +328,26 @@ export type Permission =
   | "ATTENDANCE_SELF_MARK"
   | "CMS_EDIT"
   | "SETTINGS_EDIT"
+  | "view_dashboard"
+  | "view_bookings"
+  | "create_booking"
+  | "edit_booking"
+  | "cancel_booking"
+  | "view_customers"
+  | "create_customer"
+  | "edit_customer"
+  | "view_payments"
+  | "create_payment_receipt"
+  | "view_rooms"
+  | "check_in"
+  | "check_out"
+  | "view_reports"
+  | "export_reports"
+  | "view_settings"
+  | "view_calendar"
+  | "manage_visitors"
+  | "send_whatsapp"
+  | "manage_payment_reminders"
 
 export interface Role {
   id: string
@@ -412,6 +438,27 @@ export interface AuditLog {
   payload: Record<string, unknown>
   createdAt: Timestamp
   createdBy: string
+}
+
+export type VisitorLeadStatus =
+  | "new"
+  | "follow_up"
+  | "interested"
+  | "converted"
+  | "not_interested"
+
+export interface VisitorLead {
+  id: string
+  name: string
+  phone: string
+  eventType: ListingType | "other"
+  preferredDate: string
+  notes: string
+  status: VisitorLeadStatus
+  createdAt: Timestamp
+  updatedAt: Timestamp
+  createdBy: string
+  convertedBookingId?: string | null
 }
 
 // =====================

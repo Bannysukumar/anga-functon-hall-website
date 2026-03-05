@@ -50,6 +50,10 @@ const PERMISSION_ALIASES: Record<Permission, Permission[]> = {
   view_reports: [],
   export_reports: [],
   view_settings: [],
+  view_calendar: ["view_bookings"],
+  manage_visitors: ["view_customers", "edit_customer"],
+  send_whatsapp: ["edit_booking"],
+  manage_payment_reminders: ["view_payments"],
 }
 
 function hasPermission(permissions: Permission[], required: Permission) {

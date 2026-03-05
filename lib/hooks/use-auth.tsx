@@ -9,7 +9,7 @@ import {
 } from "react"
 import { onAuthStateChanged, type User } from "firebase/auth"
 import { auth } from "@/lib/firebase"
-import { getRoles, getStaffProfile, getUser } from "@/lib/firebase-db"
+import { getRoles, getSettings, getStaffProfile, getUser } from "@/lib/firebase-db"
 import type { AppUser, Permission, StaffProfile } from "@/lib/types"
 
 interface AuthContextType {
@@ -22,6 +22,45 @@ interface AuthContextType {
   hasPermission: (permission: Permission) => boolean
   hasAnyPermission: (permissions: Permission[]) => boolean
   refreshUser: () => Promise<void>
+}
+
+const PERMISSION_ALIASES: Record<Permission, Permission[]> = {
+  BOOKINGS_VIEW: ["view_bookings"],
+  BOOKINGS_UPDATE_STATUS: ["edit_booking", "cancel_booking", "check_in", "check_out"],
+  BOOKINGS_CREATE_MANUAL: ["create_booking"],
+  LISTINGS_VIEW: ["view_rooms"],
+  LISTINGS_CREATE_EDIT: [],
+  LISTINGS_DELETE: [],
+  PAYMENTS_VIEW: ["view_payments"],
+  REFUNDS_MANAGE: [],
+  USERS_VIEW: ["view_customers"],
+  USERS_BLOCK_UNBLOCK: [],
+  STAFF_ASSIGN_ROLE: [],
+  ATTENDANCE_VIEW_ALL: [],
+  ATTENDANCE_MARK_FOR_OTHERS: [],
+  ATTENDANCE_SELF_MARK: [],
+  CMS_EDIT: [],
+  SETTINGS_EDIT: ["view_settings"],
+  view_dashboard: [],
+  view_bookings: [],
+  create_booking: [],
+  edit_booking: [],
+  cancel_booking: [],
+  view_customers: [],
+  create_customer: [],
+  edit_customer: [],
+  view_payments: [],
+  create_payment_receipt: [],
+  view_rooms: [],
+  check_in: [],
+  check_out: [],
+  view_reports: [],
+  export_reports: [],
+  view_settings: [],
+  view_calendar: ["view_bookings"],
+  manage_visitors: ["view_customers", "edit_customer"],
+  send_whatsapp: ["edit_booking"],
+  manage_payment_reminders: ["view_payments"],
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -55,6 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAdminUser(adminUser)
     if (adminUser) {
       setPermissions([])
+      return
+    }
+    if (userData?.role === "receptionist") {
+      const settings = await getSettings()
+      setPermissions(settings.receptionistPermissions || [])
       return
     }
     if (staffData?.effectivePermissions?.length) {
@@ -102,6 +146,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe()
   }, [])
 
+  const hasPermissionWithAliases = (permission: Permission) => {
+    if (isAdminUser) return true
+    if (permissions.includes(permission)) return true
+    const aliases = PERMISSION_ALIASES[permission] || []
+    return aliases.some((alias) => permissions.includes(alias))
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -111,10 +162,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         permissions,
         loading,
         isAdminUser,
-        hasPermission: (permission: Permission) =>
-          isAdminUser || permissions.includes(permission),
+        hasPermission: hasPermissionWithAliases,
         hasAnyPermission: (items: Permission[]) =>
-          isAdminUser || items.some((permission) => permissions.includes(permission)),
+          items.some((permission) => hasPermissionWithAliases(permission)),
         refreshUser,
       }}
     >

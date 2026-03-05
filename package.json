@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "seed:rbac": "node scripts/seed-rbac.js",
+    "migrate:receptionist": "node scripts/migrate-receptionist-productivity.js",
     "test": "vitest run"
   },
   "dependencies": {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import {
+  createAuditLog,
   getSecureSettings,
   getSettings,
   updateSecureSettings,
@@ -23,9 +24,71 @@ import {
 import { toast } from "sonner"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { Plus, Trash2 } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import type { Permission } from "@/lib/types"
+
+const RECEPTIONIST_PERMISSION_GROUPS: Array<{
+  module: string
+  permissions: Array<{ key: Permission; label: string }>
+}> = [
+  {
+    module: "Dashboard",
+    permissions: [{ key: "view_dashboard", label: "View Dashboard" }],
+  },
+  {
+    module: "Bookings",
+    permissions: [
+      { key: "view_bookings", label: "View Bookings" },
+      { key: "create_booking", label: "Create Booking" },
+      { key: "edit_booking", label: "Edit Booking" },
+      { key: "cancel_booking", label: "Cancel Booking" },
+      { key: "check_in", label: "Check-in" },
+      { key: "check_out", label: "Check-out" },
+    ],
+  },
+  {
+    module: "Customers",
+    permissions: [
+      { key: "view_customers", label: "View Customers" },
+      { key: "create_customer", label: "Create Customer" },
+      { key: "edit_customer", label: "Edit Customer" },
+    ],
+  },
+  {
+    module: "Payments",
+    permissions: [
+      { key: "view_payments", label: "View Payments" },
+      { key: "create_payment_receipt", label: "Create Payment Receipt" },
+    ],
+  },
+  {
+    module: "Rooms",
+    permissions: [{ key: "view_rooms", label: "View Rooms / Availability" }],
+  },
+  {
+    module: "Reports",
+    permissions: [
+      { key: "view_reports", label: "View Reports" },
+      { key: "export_reports", label: "Export Reports" },
+    ],
+  },
+  {
+    module: "Productivity",
+    permissions: [
+      { key: "view_calendar", label: "View Booking Calendar" },
+      { key: "manage_visitors", label: "Manage Visitor Leads" },
+      { key: "send_whatsapp", label: "Send WhatsApp Messages" },
+      { key: "manage_payment_reminders", label: "Manage Payment Reminders" },
+    ],
+  },
+  {
+    module: "Settings",
+    permissions: [{ key: "view_settings", label: "View Settings" }],
+  },
+]
 
 export default function SettingsPage() {
-  const { isAdminUser } = useAuth()
+  const { user, isAdminUser } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
@@ -82,6 +145,24 @@ export default function SettingsPage() {
       await updateSettings(settings)
       if (isAdminUser) {
         await updateSecureSettings(secureSettings)
+      }
+      if (isAdminUser) {
+        try {
+          await createAuditLog({
+            entity: "settings",
+            entityId: "global",
+            action: "RECEPTIONIST_PERMISSIONS_UPDATE",
+            message: "Updated receptionist permissions",
+            payload: {
+              receptionistPermissions: settings.receptionistPermissions || [],
+              userAgent:
+                typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+            },
+            createdBy: user?.uid || "",
+          })
+        } catch {
+          // Do not block settings save if audit logging fails.
+        }
       }
       toast.success("Settings saved")
     } catch {
@@ -249,6 +330,18 @@ export default function SettingsPage() {
     }))
   }
 
+  function toggleReceptionistPermission(permission: Permission) {
+    setSettings((prev) => {
+      const current = new Set(prev.receptionistPermissions || [])
+      if (current.has(permission)) {
+        current.delete(permission)
+      } else {
+        current.add(permission)
+      }
+      return { ...prev, receptionistPermissions: Array.from(current) }
+    })
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -374,6 +467,43 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Roles & Permissions</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div>
+              <Label className="text-sm font-medium">Receptionist Permissions</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Configure receptionist access. Admin always keeps full access.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {RECEPTIONIST_PERMISSION_GROUPS.map((group) => (
+                <div key={group.module} className="rounded-lg border p-3">
+                  <p className="mb-2 text-sm font-semibold text-foreground">{group.module}</p>
+                  <div className="grid gap-2">
+                    {group.permissions.map((item) => (
+                      <label
+                        key={item.key}
+                        className="flex items-center gap-2 text-sm text-muted-foreground"
+                      >
+                        <Checkbox
+                          checked={(settings.receptionistPermissions || []).includes(item.key)}
+                          onCheckedChange={() =>
+                            toggleReceptionistPermission(item.key)
+                          }
+                        />
+                        <span>{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Pricing & Fees</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-3">
@@ -423,6 +553,21 @@ export default function SettingsPage() {
                   })
                 }
               />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Payment Reminder System</Label>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Checkbox
+                  checked={settings.paymentRemindersEnabled !== false}
+                  onCheckedChange={(checked) =>
+                    setSettings({
+                      ...settings,
+                      paymentRemindersEnabled: Boolean(checked),
+                    })
+                  }
+                />
+                <span>Enable 7/3/1-day payment reminders</span>
+              </label>
             </div>
           </CardContent>
         </Card>

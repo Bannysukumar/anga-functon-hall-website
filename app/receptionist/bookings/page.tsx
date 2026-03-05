@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
+import { HallAvailabilityChecker } from "@/components/receptionist/hall-availability-checker"
 
 type Customer = { id: string; name: string; phone: string }
 
@@ -37,6 +38,7 @@ export default function ReceptionistBookingsPage() {
     paymentMethod: "cash",
     notes: "",
   })
+  const [conflictWarning, setConflictWarning] = useState("")
 
   async function loadCustomers() {
     if (!user) return
@@ -75,6 +77,33 @@ export default function ReceptionistBookingsPage() {
     loadBookings().catch((error) => toast.error(error.message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
+
+  useEffect(() => {
+    async function checkConflict() {
+      if (!user || !form.functionDateTime || !form.listingId) {
+        setConflictWarning("")
+        return
+      }
+      try {
+        const listing = listings.find((item) => item.id === form.listingId)
+        const hallType = listing?.type || "all"
+        const response = await fetch(
+          `/api/receptionist/availability?date=${encodeURIComponent(form.functionDateTime)}&hallType=${encodeURIComponent(hallType)}`,
+          { headers: { Authorization: `Bearer ${await user.getIdToken()}` } }
+        )
+        const json = await response.json()
+        if (!response.ok) return
+        if (json.status === "BOOKED") {
+          setConflictWarning("Conflict warning: booking already exists for this date/hall type.")
+          return
+        }
+        setConflictWarning("")
+      } catch {
+        setConflictWarning("")
+      }
+    }
+    checkConflict()
+  }, [form.functionDateTime, form.listingId, user, listings])
 
   async function createBooking() {
     if (!user) return
@@ -127,6 +156,26 @@ export default function ReceptionistBookingsPage() {
       await loadBookings()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Action failed")
+    }
+  }
+
+  async function sendWhatsapp(bookingId: string, kind: "confirmation" | "reminder" = "confirmation") {
+    if (!user) return
+    try {
+      const response = await fetch(`/api/receptionist/bookings/${bookingId}/whatsapp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${await user.getIdToken()}`,
+        },
+        body: JSON.stringify({ kind }),
+      })
+      const json = await response.json()
+      if (!response.ok) throw new Error(json.error || "Failed to send WhatsApp")
+      toast.success("WhatsApp message sent")
+      await loadBookings()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send WhatsApp")
     }
   }
 
@@ -278,11 +327,16 @@ export default function ReceptionistBookingsPage() {
                 />
               </div>
               <div className="md:col-span-2">
+                {conflictWarning && (
+                  <p className="mb-2 text-sm text-red-600">{conflictWarning}</p>
+                )}
                 <Button onClick={createBooking}>Create Booking</Button>
               </div>
             </CardContent>
           </Card>
         )}
+
+        {(isAdminUser || hasPermission("view_bookings")) && <HallAvailabilityChecker />}
 
         <Card>
           <CardHeader>
@@ -383,6 +437,15 @@ export default function ReceptionistBookingsPage() {
                         <Button size="sm" variant="outline" onClick={() => printReceipt(booking)}>
                           Print / PDF
                         </Button>
+                        {(isAdminUser || hasPermission("send_whatsapp")) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => sendWhatsapp(booking.id, "confirmation")}
+                          >
+                            Send WhatsApp Confirmation
+                          </Button>
+                        )}
                       </div>
                     </div>
                     <div className="mt-2 grid gap-2 text-xs text-muted-foreground md:grid-cols-4">

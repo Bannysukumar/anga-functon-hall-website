@@ -7,6 +7,7 @@ import {
   receptionistBookingsQuerySchema,
 } from "@/lib/server/receptionist-schemas"
 import { getRequestMeta, sanitizeText } from "@/lib/server/request-meta"
+import { buildBookingConfirmationMessage, sendWhatsAppMessage } from "@/lib/server/whatsapp"
 
 function toInvoiceNumber(counter: number) {
   const year = new Date().getFullYear()
@@ -261,6 +262,8 @@ export async function POST(request: Request) {
         })
       }
 
+      const remainingAmount = Math.max(0, totalAmount - advanceAmount)
+      const normalizedPaymentStatus = remainingAmount > 0 ? "partial" : "paid"
       transaction.set(bookingRef, {
         userId: customerId || uid,
         customerId: customerId || null,
@@ -290,10 +293,13 @@ export async function POST(request: Request) {
         totalAmount,
         advancePaid: advanceAmount,
         dueAmount,
+        remainingAmount,
         status: "confirmed",
-        paymentStatus: dueAmount > 0 ? "advance_paid" : "fully_paid",
+        paymentStatus: normalizedPaymentStatus,
         razorpayOrderId: "",
         razorpayPaymentId: "",
+        whatsappStatus: "pending",
+        whatsappSentAt: null,
         invoiceNumber,
         invoiceId: null,
         createdByRole: "receptionist",
@@ -343,8 +349,33 @@ export async function POST(request: Request) {
         createdAt: Timestamp.now(),
       })
 
-      return { bookingId: bookingRef.id, paymentId: paymentRef.id, invoiceNumber }
+      return {
+        bookingId: bookingRef.id,
+        paymentId: paymentRef.id,
+        invoiceNumber,
+        customerName: resolvedCustomerName,
+        customerPhone: resolvedCustomerPhone,
+        listingTitle: String(listing.title || "Listing"),
+      }
     })
+
+    if (result.customerPhone) {
+      const eventDate = functionDateTime
+      const waMessage = buildBookingConfirmationMessage({
+        customerName: result.customerName || "Customer",
+        eventDate,
+        hallName: result.listingTitle || "Anga Function Hall",
+      })
+      const waResult = await sendWhatsAppMessage(String(result.customerPhone), waMessage)
+      await adminDb.collection("bookings").doc(result.bookingId).set(
+        {
+          whatsappStatus: waResult.status,
+          whatsappSentAt: waResult.status === "sent" ? Timestamp.now() : null,
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true }
+      )
+    }
 
     return NextResponse.json(result)
   } catch (error) {

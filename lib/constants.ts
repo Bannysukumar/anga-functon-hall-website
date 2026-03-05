@@ -39,6 +39,8 @@ export const BOOKING_STATUS_LABELS: Record<string, string> = {
 
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
+  partial: "Partial",
+  paid: "Paid",
   advance_paid: "Advance Paid",
   fully_paid: "Fully Paid",
   refund_requested: "Refund Requested",
@@ -57,6 +59,8 @@ export const BOOKING_STATUS_COLORS: Record<string, string> = {
 
 export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
+  partial: "bg-sky-100 text-sky-800",
+  paid: "bg-emerald-100 text-emerald-800",
   advance_paid: "bg-sky-100 text-sky-800",
   fully_paid: "bg-emerald-100 text-emerald-800",
   refund_requested: "bg-orange-100 text-orange-800",
@@ -99,6 +103,7 @@ export const DEFAULT_SETTINGS = {
   checkoutEmailSubjectTemplate: "Checkout Confirmed - {bookingId}",
   checkoutEmailHtmlTemplate:
     "<p>Hello {userName},</p><p>Your checkout is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Allocated:</strong> {allocation}</p><p><strong>Check-out time:</strong> {checkOutAt}</p><p>Thank you for choosing Anga Function Hall.</p>",
+  paymentRemindersEnabled: true,
   socialLinks: [
     {
       platform: "instagram",
@@ -115,6 +120,27 @@ export const DEFAULT_SETTINGS = {
       label: "YouTube",
       url: "https://www.youtube.com/@angafunctonhall",
     },
+  ],
+  receptionistPermissions: [
+    "view_dashboard",
+    "view_bookings",
+    "create_booking",
+    "edit_booking",
+    "cancel_booking",
+    "view_customers",
+    "create_customer",
+    "edit_customer",
+    "view_payments",
+    "create_payment_receipt",
+    "view_rooms",
+    "check_in",
+    "check_out",
+    "view_reports",
+    "export_reports",
+    "view_calendar",
+    "manage_visitors",
+    "send_whatsapp",
+    "manage_payment_reminders",
   ],
 }
 
@@ -190,6 +216,26 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   ATTENDANCE_SELF_MARK: "Mark own attendance",
   CMS_EDIT: "Edit CMS content",
   SETTINGS_EDIT: "Edit system settings",
+  view_dashboard: "View dashboard",
+  view_bookings: "View bookings",
+  create_booking: "Create booking",
+  edit_booking: "Edit booking",
+  cancel_booking: "Cancel booking",
+  view_customers: "View customers",
+  create_customer: "Create customer",
+  edit_customer: "Edit customer",
+  view_payments: "View payments",
+  create_payment_receipt: "Create payment receipt",
+  view_rooms: "View rooms",
+  check_in: "Check-in booking",
+  check_out: "Check-out booking",
+  view_reports: "View reports",
+  export_reports: "Export reports",
+  view_settings: "View settings",
+  view_calendar: "View booking calendar",
+  manage_visitors: "Manage visitor leads",
+  send_whatsapp: "Send WhatsApp messages",
+  manage_payment_reminders: "Manage payment reminders",
 }
 
 export const ALL_PERMISSIONS: Permission[] = Object.keys(
