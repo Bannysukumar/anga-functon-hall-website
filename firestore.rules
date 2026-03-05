@@ -21,6 +21,12 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
     }
 
+    function isReceptionist() {
+      return signedIn() &&
+        userExists() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "receptionist";
+    }
+
     function staffExists() {
       return signedIn() &&
         exists(/databases/$(database)/documents/staff/$(request.auth.uid));
@@ -62,6 +68,18 @@ service cloud.firestore {
         );
     }
 
+    function receptionistPermissionList() {
+      return exists(/databases/$(database)/documents/settings/global)
+        ? get(/databases/$(database)/documents/settings/global).data.receptionistPermissions
+        : [];
+    }
+
+    function hasReceptionistPermission(permission) {
+      return isReceptionist() &&
+        receptionistPermissionList() is list &&
+        permission in receptionistPermissionList();
+    }
+
     match /branches/{branchId} {
       allow read: if true;
       allow write: if isAdmin() || hasStaffPermission("SETTINGS_EDIT");
@@ -97,11 +115,16 @@ service cloud.firestore {
     match /bookings/{bookingId} {
       allow read: if isAdmin() ||
         hasStaffPermission("BOOKINGS_VIEW") ||
+        hasReceptionistPermission("view_bookings") ||
         (signedIn() && resource.data.userId == request.auth.uid);
       // Booking creation is server-finalized only.
-      allow create: if isAdmin();
+      allow create: if isAdmin() || hasStaffPermission("BOOKINGS_CREATE_MANUAL") || hasReceptionistPermission("create_booking");
       allow update: if isAdmin() ||
         hasStaffPermission("BOOKINGS_UPDATE_STATUS") ||
+        hasReceptionistPermission("edit_booking") ||
+        hasReceptionistPermission("cancel_booking") ||
+        hasReceptionistPermission("check_in") ||
+        hasReceptionistPermission("check_out") ||
         (
           signedIn() &&
           !isBlocked() &&
@@ -120,11 +143,23 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /customers/{customerId} {
+      allow read: if isAdmin() ||
+        hasStaffPermission("USERS_VIEW") ||
+        hasReceptionistPermission("view_customers");
+      allow create: if isAdmin() ||
+        hasReceptionistPermission("create_customer");
+      allow update: if isAdmin() ||
+        hasReceptionistPermission("edit_customer");
+      allow delete: if isAdmin();
+    }
+
     match /payments/{paymentId} {
       allow read: if isAdmin() ||
         hasStaffPermission("PAYMENTS_VIEW") ||
+        hasReceptionistPermission("view_payments") ||
         (signedIn() && resource.data.userId == request.auth.uid);
-      allow write: if isAdmin();
+      allow write: if isAdmin() || hasReceptionistPermission("create_payment_receipt");
     }
 
     match /bookingIntents/{intentId} {
@@ -135,6 +170,7 @@ service cloud.firestore {
     match /reservations/{reservationId} {
       allow read: if isAdmin() ||
         hasStaffPermission("BOOKINGS_VIEW") ||
+        hasReceptionistPermission("view_bookings") ||
         (signedIn() && resource.data.userId == request.auth.uid);
       allow write: if isAdmin();
     }
@@ -142,8 +178,9 @@ service cloud.firestore {
     match /invoices/{invoiceId} {
       allow read: if isAdmin() ||
         hasStaffPermission("PAYMENTS_VIEW") ||
+        hasReceptionistPermission("view_payments") ||
         (signedIn() && resource.data.userId == request.auth.uid);
-      allow write: if isAdmin();
+      allow write: if isAdmin() || hasReceptionistPermission("create_payment_receipt");
     }
 
     match /availabilityLocks/{lockId} {
@@ -201,7 +238,14 @@ service cloud.firestore {
     }
 
     match /auditLogs/{logId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if isAdmin() ||
+        hasStaffPermission("BOOKINGS_UPDATE_STATUS") ||
+        hasStaffPermission("STAFF_ASSIGN_ROLE") ||
+        hasReceptionistPermission("edit_booking") ||
+        hasReceptionistPermission("cancel_booking") ||
+        hasReceptionistPermission("check_in") ||
+        hasReceptionistPermission("check_out");
     }
 
     match /emailLogs/{logId} {

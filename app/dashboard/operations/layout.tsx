@@ -38,7 +38,7 @@ export default function DashboardOperationsLayout({
 
   useEffect(() => {
     if (!loading && !allowed) {
-      router.replace("/dashboard")
+      router.replace("/access-denied")
     }
   }, [allowed, loading, router])
 

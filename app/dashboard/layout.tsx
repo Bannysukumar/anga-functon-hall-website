@@ -37,6 +37,13 @@ export default function DashboardLayout({
       "SETTINGS_EDIT",
       "CMS_EDIT",
       "STAFF_ASSIGN_ROLE",
+      "view_dashboard",
+      "view_bookings",
+      "view_customers",
+      "view_payments",
+      "view_rooms",
+      "view_reports",
+      "view_settings",
     ])
 
   const opsLinks = [
@@ -89,6 +96,17 @@ export default function DashboardLayout({
         ]
       : []),
   ]
+  const receptionistPanelAllowed =
+    isAdminUser ||
+    hasAnyPermission([
+      "view_dashboard",
+      "view_bookings",
+      "view_customers",
+      "view_payments",
+      "view_rooms",
+      "view_reports",
+      "view_settings",
+    ])
 
   const sidebarLinks = [
     { href: "/dashboard", label: "My Bookings", icon: CalendarDays },
@@ -135,6 +153,9 @@ export default function DashboardLayout({
             ...sidebarLinks,
             ...(canAccessAdminPanel
               ? [{ href: "/dashboard/operations", label: "Ops", icon: ShieldCheck }]
+              : []),
+            ...(receptionistPanelAllowed
+              ? [{ href: "/receptionist", label: "Receptionist", icon: ShieldCheck }]
               : []),
           ].map((link) => {
             const isActive =

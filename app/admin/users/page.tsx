@@ -1,6 +1,12 @@
 "use client"
 
-import { getAllUsers, getBookings, getListings, updateUser } from "@/lib/firebase-db"
+import {
+  createAuditLog,
+  getAllUsers,
+  getBookings,
+  getListings,
+  updateUser,
+} from "@/lib/firebase-db"
 import type { AppUser, Booking, Listing } from "@/lib/types"
 import { useEffect, useState } from "react"
 import Link from "next/link"
@@ -42,15 +48,17 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/hooks/use-auth"
+import { resetPassword } from "@/lib/firebase-auth"
 
 const DETAILS_PAGE_SIZE = 5
 
 export default function AdminUsersPage() {
   const { toast } = useToast()
-  const { hasPermission, isAdminUser } = useAuth()
+  const { user: authUser, hasPermission, isAdminUser } = useAuth()
   const [users, setUsers] = useState<AppUser[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "receptionist">("all")
   const [selectedUser, setSelectedUser] = useState<AppUser | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [detailsLoading, setDetailsLoading] = useState(false)
@@ -86,6 +94,17 @@ export default function AdminUsersPage() {
     }
     try {
       await updateUser(user.id, { isBlocked: !user.isBlocked })
+      await createAuditLog({
+        entity: "user",
+        entityId: user.id,
+        action: user.isBlocked ? "UNBLOCK" : "BLOCK",
+        message: `${user.isBlocked ? "Unblocked" : "Blocked"} user ${user.email}`,
+        payload: {
+          email: user.email,
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+        },
+        createdBy: authUser?.uid || "",
+      })
       toast({
         title: user.isBlocked ? "User unblocked" : "User blocked",
       })
@@ -100,6 +119,8 @@ export default function AdminUsersPage() {
   }
 
   const filtered = users.filter((u) => {
+    const role = (u.role || "user").toLowerCase()
+    if (roleFilter !== "all" && role !== roleFilter) return false
     if (!searchQuery) return true
     const q = searchQuery.toLowerCase()
     return (
@@ -110,17 +131,41 @@ export default function AdminUsersPage() {
     )
   })
 
-  const handleRoleUpdate = async (user: AppUser, role: "user" | "admin") => {
-    if (!isAdminUser && !hasPermission("STAFF_ASSIGN_ROLE")) {
+  const handleRoleUpdate = async (
+    user: AppUser,
+    role: "user" | "admin" | "receptionist"
+  ) => {
+    if (!isAdminUser) {
       toast({
         title: "Permission denied",
-        description: "You do not have permission to change roles.",
+        description: "Only admin can change user roles.",
+        variant: "destructive",
+      })
+      return
+    }
+    const adminCount = users.filter((u) => (u.role || "user") === "admin").length
+    if ((user.role || "user") === "admin" && role !== "admin" && adminCount <= 1) {
+      toast({
+        title: "Cannot remove last admin",
+        description: "At least one admin account is required.",
         variant: "destructive",
       })
       return
     }
     try {
       await updateUser(user.id, { role })
+      await createAuditLog({
+        entity: "user",
+        entityId: user.id,
+        action: "ROLE_UPDATE",
+        message: `Changed role to ${role} for ${user.email}`,
+        payload: {
+          previousRole: user.role || "user",
+          nextRole: role,
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+        },
+        createdBy: authUser?.uid || "",
+      })
       toast({
         title: `Role updated to ${role}`,
       })
@@ -129,6 +174,40 @@ export default function AdminUsersPage() {
       toast({
         title: "Error",
         description: "Failed to update role.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleResetPassword = async (user: AppUser) => {
+    if (!isAdminUser) {
+      toast({
+        title: "Permission denied",
+        description: "Only admins can reset passwords.",
+        variant: "destructive",
+      })
+      return
+    }
+    try {
+      await resetPassword(user.email)
+      await createAuditLog({
+        entity: "user",
+        entityId: user.id,
+        action: "PASSWORD_RESET",
+        message: `Password reset email sent to ${user.email}`,
+        payload: {
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+        },
+        createdBy: authUser?.uid || "",
+      })
+      toast({
+        title: "Password reset sent",
+        description: `Reset link sent to ${user.email}`,
+      })
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to send password reset email.",
         variant: "destructive",
       })
     }
@@ -213,6 +292,19 @@ export default function AdminUsersPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            {(["all", "admin", "receptionist"] as const).map((item) => (
+              <Button
+                key={item}
+                type="button"
+                size="sm"
+                variant={roleFilter === item ? "default" : "outline"}
+                onClick={() => setRoleFilter(item)}
+              >
+                {item === "all" ? "All" : item === "admin" ? "Admin" : "Receptionist"}
+              </Button>
+            ))}
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -316,18 +408,25 @@ export default function AdminUsersPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem
-                                onClick={() =>
-                                  handleRoleUpdate(
-                                    u,
-                                    (u.role || "user") === "admin" ? "user" : "admin"
-                                  )
-                                }
-                                disabled={!isAdminUser && !hasPermission("STAFF_ASSIGN_ROLE")}
+                                onClick={() => handleRoleUpdate(u, "admin")}
+                                disabled={!isAdminUser}
                               >
                                 <UserCog className="mr-2 h-4 w-4" />
-                                {(u.role || "user") === "admin"
-                                  ? "Set as User"
-                                  : "Set as Admin"}
+                                Set as Admin
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleRoleUpdate(u, "receptionist")}
+                                disabled={!isAdminUser}
+                              >
+                                <UserCog className="mr-2 h-4 w-4" />
+                                Set as Receptionist
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleRoleUpdate(u, "user")}
+                                disabled={!isAdminUser}
+                              >
+                                <UserCog className="mr-2 h-4 w-4" />
+                                Set as User
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => handleToggleBlock(u)}
@@ -348,6 +447,13 @@ export default function AdminUsersPage() {
                               <DropdownMenuItem onClick={() => openUserDetails(u)}>
                                 <Eye className="mr-2 h-4 w-4" />
                                 View Full Data
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleResetPassword(u)}
+                                disabled={!isAdminUser}
+                              >
+                                <Shield className="mr-2 h-4 w-4" />
+                                Reset Password
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>

@@ -9,6 +9,10 @@ import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import Link from "next/link"
 
+const LOGIN_RATE_LIMIT_KEY = "login_rate_limit"
+const LOGIN_MAX_ATTEMPTS = 5
+const LOGIN_WINDOW_MS = 10 * 60 * 1000
+
 export function LoginForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -17,12 +21,30 @@ export function LoginForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    const now = Date.now()
+    const stored =
+      typeof window !== "undefined" ? window.localStorage.getItem(LOGIN_RATE_LIMIT_KEY) : null
+    const parsed = stored ? JSON.parse(stored) as { count: number; firstAt: number } : null
+    if (parsed && now - parsed.firstAt < LOGIN_WINDOW_MS && parsed.count >= LOGIN_MAX_ATTEMPTS) {
+      toast.error("Too many login attempts. Please try again in a few minutes.")
+      return
+    }
     setLoading(true)
     try {
       const user = await logIn(email, password)
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(LOGIN_RATE_LIMIT_KEY)
+      }
       toast.success("Welcome back!")
       router.push(isAdmin(user) ? "/admin" : "/dashboard")
     } catch (error: unknown) {
+      if (typeof window !== "undefined") {
+        const current =
+          now - (parsed?.firstAt || now) > LOGIN_WINDOW_MS
+            ? { count: 1, firstAt: now }
+            : { count: (parsed?.count || 0) + 1, firstAt: parsed?.firstAt || now }
+        window.localStorage.setItem(LOGIN_RATE_LIMIT_KEY, JSON.stringify(current))
+      }
       const message =
         error instanceof Error ? error.message : "Login failed. Please try again."
       toast.error(message)

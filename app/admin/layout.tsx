@@ -12,9 +12,8 @@ import {
 } from "@/components/ui/sheet"
 import { Menu } from "lucide-react"
 import { useEffect, useState } from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/hooks/use-auth"
-import { getRequiredPermissionsForAdminPath } from "@/lib/rbac"
 import { Spinner } from "@/components/ui/spinner"
 
 export default function AdminLayout({
@@ -31,10 +30,8 @@ export default function AdminLayout({
 
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
-  const pathname = usePathname()
   const router = useRouter()
-  const { user, loading, isAdminUser, hasAnyPermission } = useAuth()
-  const requiredPermissions = getRequiredPermissionsForAdminPath(pathname)
+  const { user, loading, isAdminUser } = useAuth()
 
   if (loading) {
     return (
@@ -46,13 +43,11 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
   if (!user) return null
 
-  const allowed =
-    isAdminUser ||
-    (requiredPermissions.length > 0 && hasAnyPermission(requiredPermissions))
+  const allowed = isAdminUser
 
   useEffect(() => {
     if (!allowed) {
-      router.replace("/dashboard")
+      router.replace("/access-denied")
     }
   }, [allowed, router])
 

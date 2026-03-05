@@ -25,7 +25,7 @@ const NAV_LINKS = [
 ]
 
 export function Header() {
-  const { user, loading, isAdminUser, hasAnyPermission } = useAuth()
+  const { user, appUser, loading, isAdminUser, hasAnyPermission } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -60,9 +60,21 @@ export function Header() {
       "SETTINGS_EDIT",
       "CMS_EDIT",
       "STAFF_ASSIGN_ROLE",
+      "view_dashboard",
+      "view_bookings",
+      "view_customers",
+      "view_payments",
+      "view_rooms",
+      "view_reports",
+      "view_settings",
     ])
 
-  const operationsHref = isAdminUser ? "/admin" : "/dashboard/operations"
+  const operationsHref =
+    isAdminUser || appUser?.role === "admin"
+      ? "/admin"
+      : appUser?.role === "receptionist"
+        ? "/receptionist"
+        : "/dashboard/operations"
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -112,6 +124,9 @@ export function Header() {
                         </p>
                         <p className="text-xs text-muted-foreground truncate">
                           {user.email}
+                        </p>
+                        <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                          Role: {String(appUser?.role || "user")}
                         </p>
                       </div>
                       <DropdownMenuSeparator />
