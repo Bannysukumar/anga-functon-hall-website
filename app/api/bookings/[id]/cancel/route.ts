@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { Timestamp } from "firebase-admin/firestore"
 import { adminAuth, adminDb } from "@/lib/server/firebase-admin"
 import { markReservationsCancelled, releaseBookingAvailability } from "@/lib/server/booking-cancellation"
+import { calculateRefundAmount } from "@/lib/server/refund-policy"
+import { sendBookingEmail } from "@/lib/server/booking-email"
 
 function readBearerToken(request: Request) {
   const auth = request.headers.get("authorization") || ""
@@ -34,13 +36,32 @@ export async function POST(
       return NextResponse.json({ error: "Booking cannot be cancelled." }, { status: 409 })
     }
 
+    let cancellationReason = ""
+    try {
+      const body = await request.json().catch(() => ({}))
+      cancellationReason = String(body?.cancellationReason ?? "").trim().slice(0, 500)
+    } catch {
+      // no body
+    }
+
+    const advancePaid = Number(current.advancePaid || 0)
+    const settingsSnap = await adminDb.collection("settings").doc("global").get()
+    const settings = (settingsSnap.data() || {}) as { refundPolicyRules?: Array<{ daysBefore: number; percent: number }> }
+    const rules = Array.isArray(settings.refundPolicyRules) && settings.refundPolicyRules.length > 0
+      ? settings.refundPolicyRules
+      : undefined
+    const { amount: refundAmount } = calculateRefundAmount(advancePaid, current.checkInDate, rules)
+    const paymentMethod = String(current.razorpayPaymentId || "").trim() ? "online" : "cash"
+
     await ref.set(
       {
         status: "cancelled",
         cancelledAt: Timestamp.now(),
-        paymentStatus:
-          Number(current.advancePaid || 0) > 0 ? "refund_requested" : String(current.paymentStatus || "pending"),
-        refundStatus: Number(current.advancePaid || 0) > 0 ? "requested" : String(current.refundStatus || "none"),
+        ...(cancellationReason ? { cancellationReason } : {}),
+        paymentStatus: advancePaid > 0 ? "refund_requested" : String(current.paymentStatus || "pending"),
+        refundStatus: advancePaid > 0 ? "refund_requested" : String(current.refundStatus || "none"),
+        refundAmount: advancePaid > 0 ? refundAmount : Number(current.refundAmount || 0),
+        paymentMethod: current.paymentMethod || paymentMethod,
         updatedAt: Timestamp.now(),
       },
       { merge: true }
@@ -60,6 +81,22 @@ export async function POST(
       createdBy: decoded.uid,
       createdAt: Timestamp.now(),
     })
+
+    try {
+      const userSnap = await adminDb.collection("users").doc(String(current.userId || "")).get()
+      const user = userSnap.exists ? (userSnap.data() || {}) : {}
+      const emailPayload = {
+        ...current,
+        status: "cancelled",
+        refundStatus: advancePaid > 0 ? "refund_requested" : current.refundStatus,
+        refundAmount: advancePaid > 0 ? refundAmount : current.refundAmount,
+        customerEmail: user.email || current.customerEmail,
+        customerName: user.displayName || user.name || current.customerName,
+      }
+      await sendBookingEmail("BOOKING_CANCELLED", id, emailPayload)
+    } catch (e) {
+      console.error("Cancel notification email failed", e)
+    }
 
     return NextResponse.json({ ok: true })
   } catch {

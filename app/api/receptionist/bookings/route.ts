@@ -179,6 +179,9 @@ export async function POST(request: Request) {
     const customerRef = customerId ? adminDb.collection("customers").doc(customerId) : null
     const customerUserRef = customerId ? adminDb.collection("users").doc(customerId) : null
 
+    const settingsSnap = await adminDb.collection("settings").doc("global").get()
+    const globalSettings = (settingsSnap.data() || {}) as Record<string, unknown>
+
     const result = await adminDb.runTransaction(async (transaction) => {
       const listingSnap = await transaction.get(listingRef)
       if (!listingSnap.exists) throw new Error("LISTING_NOT_FOUND")
@@ -201,6 +204,10 @@ export async function POST(request: Request) {
       )
       const checkInDateKey = normalizeDateKey(functionDateTime)
       if (!checkInDateKey) throw new Error("INVALID_DATE")
+      const checkInTime = String(listing.defaultCheckInTime ?? globalSettings.defaultCheckInTime ?? "12:00").trim() || "12:00"
+      const checkOutTime = String(listing.defaultCheckOutTime ?? globalSettings.defaultCheckOutTime ?? "11:00").trim() || "11:00"
+      const scheduledCheckInAt = Timestamp.fromDate(new Date(`${checkInDateKey}T${checkInTime}`))
+      const scheduledCheckOutAt = Timestamp.fromDate(new Date(`${checkInDateKey}T${checkOutTime}`))
       const bookingSlot = resolveBookingSlot(listing, functionDateTime)
       const listingType = String(listing.type || "function_hall")
       const usesRoomResource =
@@ -288,6 +295,8 @@ export async function POST(request: Request) {
         branchName: branchSnap?.exists ? String(branchSnap.data()?.name || "") : "",
         checkInDate: checkInTs,
         checkOutDate: null,
+        scheduledCheckInAt,
+        scheduledCheckOutAt,
         slotId: bookingSlot.slotId,
         slotName: bookingSlot.slotName,
         guestCount,
@@ -315,6 +324,7 @@ export async function POST(request: Request) {
         cancelledAt: null,
         refundAmount: 0,
         refundStatus: "none",
+        paymentMethod: paymentMethod === "online" ? "online" : "cash",
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       })

@@ -67,6 +67,31 @@ export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   refunded: "bg-red-100 text-red-800",
 }
 
+export const REFUND_STATUS_LABELS: Record<string, string> = {
+  none: "—",
+  refund_requested: "Refund Requested",
+  requested: "Refund Requested",
+  approved: "Approved",
+  rejected: "Rejected",
+  refunded: "Refund Completed",
+  processed: "Refund Completed",
+}
+
+export const REFUND_STATUS_COLORS: Record<string, string> = {
+  none: "bg-muted text-muted-foreground",
+  refund_requested: "bg-orange-100 text-orange-800",
+  requested: "bg-orange-100 text-orange-800",
+  approved: "bg-blue-100 text-blue-800",
+  rejected: "bg-red-100 text-red-800",
+  refunded: "bg-emerald-100 text-emerald-800",
+  processed: "bg-emerald-100 text-emerald-800",
+}
+
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  online: "Online",
+  cash: "Cash",
+}
+
 export const DEFAULT_SETTINGS = {
   serviceFeePercent: 5,
   taxPercent: 18,
@@ -104,6 +129,13 @@ export const DEFAULT_SETTINGS = {
   checkoutEmailHtmlTemplate:
     "<p>Hello {userName},</p><p>Your event is completed successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Event Date:</strong> {eventDate}</p><p><strong>Checkout Date:</strong> {checkOutAt}</p><p><strong>Total Amount Paid:</strong> INR {paidAmount}</p><p>Thank you for choosing Anga Function Hall.</p>",
   paymentRemindersEnabled: true,
+  defaultCheckInTime: "12:00",
+  defaultCheckOutTime: "11:00",
+  refundPolicyRules: [
+    { daysBefore: 7, percent: 100 },
+    { daysBefore: 3, percent: 50 },
+    { daysBefore: 1, percent: 0 },
+  ],
   socialLinks: [
     {
       platform: "instagram",

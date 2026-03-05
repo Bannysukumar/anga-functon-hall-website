@@ -69,6 +69,10 @@ export interface Listing {
   addons: ListingAddon[]
   isActive: boolean
   isFeatured: boolean
+  /** Default check-in time for the listing (HH:mm, e.g. "09:00"). Used when creating bookings. */
+  defaultCheckInTime?: string
+  /** Default check-out time for the listing (HH:mm, e.g. "18:00"). Used when creating bookings. */
+  defaultCheckOutTime?: string
   createdAt: Timestamp
   updatedAt: Timestamp
 }
@@ -152,8 +156,16 @@ export interface Booking {
   checkoutNotes?: string
   checkoutEmailStatus?: "pending" | "sent" | "failed"
   cancelledAt: Timestamp | null
+  cancellationReason?: string | null
   refundAmount: number
-  refundStatus: "none" | "requested" | "approved" | "processed"
+  /** none | refund_requested | approved | rejected | refunded. Legacy: "requested" treated as refund_requested, "processed" as refunded. */
+  refundStatus: "none" | "refund_requested" | "approved" | "rejected" | "refunded" | "requested" | "processed"
+  refundMethod?: "cash" | "upi" | "bank_transfer" | null
+  refundDate?: Timestamp | null
+  refundProcessedBy?: string | null
+  gatewayRefundId?: string | null
+  /** How the customer paid: online (gateway) or cash. Inferred from razorpayPaymentId if not set. */
+  paymentMethod?: "online" | "cash" | null
   whatsappStatus?: "pending" | "sent" | "failed" | "disabled"
   whatsappSentAt?: Timestamp | null
   createdAt: Timestamp
@@ -293,6 +305,12 @@ export interface SiteSettings {
   socialLinks: SocialLink[]
   receptionistPermissions?: Permission[]
   paymentRemindersEnabled?: boolean
+  /** System default check-in time (HH:mm). Used when listing has no override. */
+  defaultCheckInTime?: string
+  /** System default check-out time (HH:mm). Used when listing has no override. */
+  defaultCheckOutTime?: string
+  /** Refund policy rules: days before event → refund percent. E.g. [{ daysBefore: 7, percent: 100 }, { daysBefore: 3, percent: 50 }, { daysBefore: 1, percent: 0 }]. Applied in order (first matching rule wins). */
+  refundPolicyRules?: Array<{ daysBefore: number; percent: number }>
 }
 
 export interface SecureSettings {

@@ -16,6 +16,39 @@ import { HallAvailabilityChecker } from "@/components/receptionist/hall-availabi
 
 type Customer = { id: string; name: string; phone: string }
 
+function formatBookingTimestamp(value: unknown): string {
+  if (!value) return "-"
+  const d =
+    typeof (value as { toDate?: () => Date }).toDate === "function"
+      ? (value as { toDate: () => Date }).toDate()
+      : typeof (value as { seconds?: number }).seconds === "number"
+        ? new Date((value as { seconds: number }).seconds * 1000)
+        : null
+  return d && !Number.isNaN(d.getTime()) ? format(d, "dd MMM yyyy hh:mm a") : "-"
+}
+
+function formatBookingTime(value: unknown): string {
+  if (!value) return "-"
+  const d =
+    typeof (value as { toDate?: () => Date }).toDate === "function"
+      ? (value as { toDate: () => Date }).toDate()
+      : typeof (value as { seconds?: number }).seconds === "number"
+        ? new Date((value as { seconds: number }).seconds * 1000)
+        : null
+  return d && !Number.isNaN(d.getTime()) ? format(d, "dd MMM hh:mm a") : "-"
+}
+
+function formatBookingDate(value: unknown): string {
+  if (!value) return "-"
+  const d =
+    typeof (value as { toDate?: () => Date }).toDate === "function"
+      ? (value as { toDate: () => Date }).toDate()
+      : typeof (value as { seconds?: number }).seconds === "number"
+        ? new Date((value as { seconds: number }).seconds * 1000)
+        : null
+  return d && !Number.isNaN(d.getTime()) ? format(d, "dd MMM yyyy") : "-"
+}
+
 export default function ReceptionistBookingsPage() {
   const { user, hasPermission, isAdminUser } = useAuth()
   const [bookings, setBookings] = useState<Booking[]>([])
@@ -413,16 +446,17 @@ export default function ReceptionistBookingsPage() {
                                 })
                               }
                             >
-                              Cancel
+                              Cancel booking
                             </Button>
                           )}
-                        {(isAdminUser || hasPermission("check_in")) && booking.status === "confirmed" && (
-                          <Button size="sm" onClick={() => confirmAndRun(booking.id, "check_in")}>
-                            Check-in
-                          </Button>
-                        )}
+                        {(isAdminUser || hasPermission("check_in")) &&
+                          booking.status === "confirmed" && (
+                            <Button size="sm" onClick={() => confirmAndRun(booking.id, "check_in")}>
+                              Check-in
+                            </Button>
+                          )}
                         {(isAdminUser || hasPermission("check_out")) &&
-                          (booking.status === "checked_in" || booking.status === "confirmed") && (
+                          booking.status === "checked_in" && (
                             <Button
                               size="sm"
                               onClick={() =>
@@ -448,16 +482,22 @@ export default function ReceptionistBookingsPage() {
                         )}
                       </div>
                     </div>
-                    <div className="mt-2 grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
-                      <p>
-                        Date:{" "}
-                        {booking.checkInDate?.toDate
-                          ? format(booking.checkInDate.toDate(), "dd MMM yyyy hh:mm a")
-                          : "-"}
-                      </p>
+                    <div className="mt-2 grid gap-2 text-xs text-muted-foreground md:grid-cols-2 lg:grid-cols-4">
+                      <p>Event date: {formatBookingDate(booking.checkInDate)}</p>
                       <p>Guests: {booking.guestCount}</p>
                       <p>Total: ₹{Number(booking.totalAmount || 0).toLocaleString("en-IN")}</p>
                       <p>Advance: ₹{Number(booking.advancePaid || 0).toLocaleString("en-IN")}</p>
+                      <p>Check-in time: {formatBookingTime(booking.scheduledCheckInAt)}</p>
+                      <p>Check-out time: {formatBookingTime(booking.scheduledCheckOutAt)}</p>
+                      <p>Actual check-in: {formatBookingTimestamp(booking.checkInAt)}</p>
+                      <p>
+                        Actual check-out:{" "}
+                        {booking.status === "checked_out"
+                          ? formatBookingTimestamp(booking.checkOutAt) !== "-"
+                            ? formatBookingTimestamp(booking.checkOutAt)
+                            : "—"
+                          : "-"}
+                      </p>
                     </div>
                   </div>
                 ))

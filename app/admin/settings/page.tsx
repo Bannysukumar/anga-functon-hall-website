@@ -688,6 +688,104 @@ export default function SettingsPage() {
                 }
               />
             </div>
+            <div className="flex flex-col gap-2">
+              <Label>Cancellation refund rules</Label>
+              <p className="text-xs text-muted-foreground">
+                First matching rule (by days before event) determines refund percent. E.g. 7 days → 100%, 3 days → 50%, 1 day → 0%. Add rules with days in descending order.
+              </p>
+              <div className="flex flex-col gap-2 rounded-md border p-3">
+                {(settings.refundPolicyRules ?? []).map((rule, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      placeholder="Days before"
+                      className="w-28"
+                      value={rule.daysBefore}
+                      onChange={(e) => {
+                        const next = [...(settings.refundPolicyRules ?? [])]
+                        next[idx] = { ...next[idx], daysBefore: parseInt(e.target.value, 10) || 0 }
+                        setSettings({ ...settings, refundPolicyRules: next })
+                      }}
+                    />
+                    <span className="text-muted-foreground">→</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      placeholder="%"
+                      className="w-20"
+                      value={rule.percent}
+                      onChange={(e) => {
+                        const next = [...(settings.refundPolicyRules ?? [])]
+                        next[idx] = { ...next[idx], percent: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)) }
+                        setSettings({ ...settings, refundPolicyRules: next })
+                      }}
+                    />
+                    <span className="text-muted-foreground">% refund</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        const next = (settings.refundPolicyRules ?? []).filter((_, i) => i !== idx)
+                        setSettings({ ...settings, refundPolicyRules: next })
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() =>
+                    setSettings({
+                      ...settings,
+                      refundPolicyRules: [...(settings.refundPolicyRules ?? []), { daysBefore: 7, percent: 100 }],
+                    })
+                  }
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add rule
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Check-in & Check-out (system defaults)</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Default times used by the booking lifecycle. Guests can check-in only after the check-in time on the event date. Bookings are auto-checked out after the check-out time if not manually checked out. Listings can override these per listing.
+            </p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label>Default check-in time</Label>
+                <Input
+                  type="time"
+                  value={settings.defaultCheckInTime ?? "12:00"}
+                  onChange={(e) =>
+                    setSettings({ ...settings, defaultCheckInTime: e.target.value })
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Default check-out time</Label>
+                <Input
+                  type="time"
+                  value={settings.defaultCheckOutTime ?? "11:00"}
+                  onChange={(e) =>
+                    setSettings({ ...settings, defaultCheckOutTime: e.target.value })
+                  }
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
 

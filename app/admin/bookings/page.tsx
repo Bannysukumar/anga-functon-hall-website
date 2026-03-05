@@ -58,7 +58,7 @@ import {
 export default function AdminBookingsPage() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
-  const { hasPermission, isAdminUser } = useAuth()
+  const { user, hasPermission, isAdminUser } = useAuth()
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState("all")
@@ -126,16 +126,20 @@ export default function AdminBookingsPage() {
       return
     }
     try {
-      await updateBooking(bookingId, {
-        refundStatus: "approved",
-        paymentStatus: "refunded",
+      const token = await user?.getIdToken?.()
+      if (!token) throw new Error("Not authenticated")
+      const res = await fetch(`/api/admin/refunds/${bookingId}/approve`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
       })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Failed to approve refund")
       toast({ title: "Refund approved" })
       loadBookings()
-    } catch {
+    } catch (e) {
       toast({
         title: "Error",
-        description: "Failed to approve refund.",
+        description: e instanceof Error ? e.message : "Failed to approve refund.",
         variant: "destructive",
       })
     }
@@ -406,7 +410,7 @@ export default function AdminBookingsPage() {
                                   Cancel
                                 </DropdownMenuItem>
                               )}
-                              {booking.refundStatus === "requested" && (
+                              {(booking.refundStatus === "requested" || booking.refundStatus === "refund_requested") && (
                                 <DropdownMenuItem
                                   onClick={() =>
                                     handleRefundApproval(booking.id)

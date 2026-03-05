@@ -1,11 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { getBookings } from "@/lib/firebase-db"
-import type { Booking } from "@/lib/types"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { toast } from "sonner"
 import { HallAvailabilityChecker } from "@/components/receptionist/hall-availability-checker"
@@ -21,13 +19,42 @@ type ReminderItem = {
 
 export default function ReceptionistHomePage() {
   const { hasPermission, isAdminUser, user } = useAuth()
-  const [bookings, setBookings] = useState<Booking[]>([])
+  const [todaySummary, setTodaySummary] = useState<{
+    checkIns: number
+    checkOuts: number
+    upcoming: number
+    cancelled: number
+  } | null>(null)
   const [reminders, setReminders] = useState<ReminderItem[]>([])
   const [remindersEnabled, setRemindersEnabled] = useState(true)
 
   useEffect(() => {
-    getBookings({ limitCount: 200 }).then(setBookings).catch(() => setBookings([]))
-  }, [])
+    async function loadSummary() {
+      if (!user) return
+      try {
+        const res = await fetch(
+          "/api/receptionist/bookings?limit=300",
+          { headers: { Authorization: `Bearer ${await user.getIdToken()}` } }
+        )
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || "Failed to load")
+        const items = Array.isArray(data.items) ? data.items : []
+        setTodaySummary({
+          checkIns: items.filter((b: { status?: string }) => b.status === "checked_in").length,
+          checkOuts: items.filter((b: { status?: string }) => b.status === "checked_out").length,
+          upcoming: items.filter((b: { status?: string }) => b.status === "confirmed").length,
+          cancelled: items.filter((b: { status?: string }) => b.status === "cancelled").length,
+        })
+      } catch {
+        setTodaySummary({ checkIns: 0, checkOuts: 0, upcoming: 0, cancelled: 0 })
+      }
+    }
+    if (isAdminUser || hasPermission("view_bookings")) {
+      loadSummary()
+    } else {
+      setTodaySummary({ checkIns: 0, checkOuts: 0, upcoming: 0, cancelled: 0 })
+    }
+  }, [user, hasPermission, isAdminUser])
 
   useEffect(() => {
     async function loadReminders() {
@@ -84,18 +111,11 @@ export default function ReceptionistHomePage() {
     }
   }
 
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
-  const todayBookings = bookings.filter((booking) => {
-    const date = booking.checkInDate?.toDate?.()
-    if (!date) return false
-    return date.toISOString().slice(0, 10) === today
-  })
-
-  const summary = {
-    checkIns: todayBookings.filter((b) => b.status === "checked_in").length,
-    checkOuts: todayBookings.filter((b) => b.status === "checked_out").length,
-    upcoming: todayBookings.filter((b) => b.status === "confirmed").length,
-    cancelled: todayBookings.filter((b) => b.status === "cancelled").length,
+  const summary = todaySummary ?? {
+    checkIns: 0,
+    checkOuts: 0,
+    upcoming: 0,
+    cancelled: 0,
   }
 
   return (
@@ -106,13 +126,18 @@ export default function ReceptionistHomePage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {Object.entries(summary).map(([label, value]) => (
-          <Card key={label}>
+        {([
+          ["checkIns", "Check-ins", summary.checkIns],
+          ["checkOuts", "Check-outs", summary.checkOuts],
+          ["upcoming", "Upcoming", summary.upcoming],
+          ["cancelled", "Cancelled", summary.cancelled],
+        ] as const).map(([key, label, value]) => (
+          <Card key={key}>
             <CardHeader>
-              <CardTitle className="text-base capitalize">{label}</CardTitle>
+              <CardTitle className="text-base">{label}</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-semibold">{value}</p>
+              <p className="text-2xl font-semibold">{todaySummary === null ? "…" : value}</p>
             </CardContent>
           </Card>
         ))}

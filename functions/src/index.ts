@@ -317,26 +317,34 @@ function isSlotBased(listingType: string) {
   ].includes(listingType)
 }
 
+function parseTimeHHmm(value: string | undefined): string {
+  if (typeof value === "string" && /^\d{1,2}:\d{2}$/.test(value.trim())) return value.trim()
+  return ""
+}
+
 function buildCheckInOutSchedule(
   listingType: string,
   checkInDate: string,
-  checkOutDate?: string | null
+  checkOutDate?: string | null,
+  listingTimes?: { defaultCheckInTime?: string; defaultCheckOutTime?: string }
 ): {
   scheduledCheckInAt: admin.firestore.Timestamp
   scheduledCheckOutAt: admin.firestore.Timestamp
 } {
-  const start = new Date(`${checkInDate}T12:00:00`)
-  const end = new Date(`${checkInDate}T11:00:00`)
+  const checkInTime = parseTimeHHmm(listingTimes?.defaultCheckInTime) || "12:00"
+  const checkOutTime = parseTimeHHmm(listingTimes?.defaultCheckOutTime) || "11:00"
+  const start = new Date(`${checkInDate}T${checkInTime}`)
+  const end = new Date(`${checkInDate}T${checkOutTime}`)
   if (isSlotBased(listingType)) {
-    const slotStart = new Date(`${checkInDate}T09:00:00`)
-    const slotEnd = new Date(`${checkInDate}T23:59:00`)
+    const slotStart = new Date(`${checkInDate}T${parseTimeHHmm(listingTimes?.defaultCheckInTime) || "09:00"}`)
+    const slotEnd = new Date(`${checkInDate}T${parseTimeHHmm(listingTimes?.defaultCheckOutTime) || "23:59"}`)
     return {
       scheduledCheckInAt: admin.firestore.Timestamp.fromDate(slotStart),
       scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(slotEnd),
     }
   }
   if (checkOutDate) {
-    const parsed = new Date(`${checkOutDate}T11:00:00`)
+    const parsed = new Date(`${checkOutDate}T${checkOutTime}`)
     if (!Number.isNaN(parsed.getTime()) && parsed > start) {
       return {
         scheduledCheckInAt: admin.firestore.Timestamp.fromDate(start),
@@ -1070,7 +1078,11 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
     const schedule = buildCheckInOutSchedule(
       String(listing.type || "function_hall"),
       checkInDate,
-      checkOutDate
+      checkOutDate,
+      {
+        defaultCheckInTime: listing.defaultCheckInTime,
+        defaultCheckOutTime: listing.defaultCheckOutTime,
+      }
     )
     const bookingRef = db.collection("bookings").doc()
     const paymentRef = db.collection("payments").doc()
@@ -1567,7 +1579,7 @@ export const scheduledAutoCheckoutJob = onSchedule("every 10 minutes", async () 
   const due = snap.docs.filter((docSnap) => {
     const data = docSnap.data() || {}
     const status = String(data.status || "")
-    if (!["confirmed", "checked_in"].includes(status)) return false
+    if (status !== "checked_in") return false
     const scheduled = data.scheduledCheckOutAt?.toDate?.()
     if (!scheduled) return false
     return scheduled.getTime() <= now.getTime()

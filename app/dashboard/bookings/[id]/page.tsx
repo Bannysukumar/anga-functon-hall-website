@@ -8,6 +8,8 @@ import {
   BOOKING_STATUS_COLORS,
   PAYMENT_STATUS_LABELS,
   PAYMENT_STATUS_COLORS,
+  REFUND_STATUS_LABELS,
+  REFUND_STATUS_COLORS,
   LISTING_TYPE_LABELS,
 } from "@/lib/constants"
 import { useEffect, useState } from "react"
@@ -41,7 +43,6 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
-import { userCheckOut } from "@/lib/booking-functions"
 
 export default function BookingDetailPage() {
   const params = useParams()
@@ -52,6 +53,7 @@ export default function BookingDetailPage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [loading, setLoading] = useState(true)
   const [cancelling, setCancelling] = useState(false)
+  const [checkingIn, setCheckingIn] = useState(false)
   const [checkingOut, setCheckingOut] = useState(false)
 
   useEffect(() => {
@@ -146,24 +148,73 @@ export default function BookingDetailPage() {
       })
     : null
 
-  const canCancel =
-    booking.status === "pending" || booking.status === "confirmed"
-  const canCheckout = booking.status === "confirmed" || booking.status === "checked_in"
-
   const autoCheckoutAt = booking.scheduledCheckOutAt?.toDate
     ? booking.scheduledCheckOutAt.toDate().toLocaleString("en-IN")
     : null
   const scheduledCheckInAt = booking.scheduledCheckInAt?.toDate
     ? booking.scheduledCheckInAt.toDate()
     : null
-  const canCheckoutNow =
-    canCheckout &&
-    (!scheduledCheckInAt || scheduledCheckInAt.getTime() <= Date.now())
+
+  const canCancel =
+    booking.status === "pending" || booking.status === "confirmed"
+  const canCheckIn =
+    booking.status === "confirmed" &&
+    (scheduledCheckInAt == null || scheduledCheckInAt.getTime() <= Date.now())
+  const canCheckout = booking.status === "checked_in"
+
+  const handleUserCheckIn = async () => {
+    if (!user) return
+    setCheckingIn(true)
+    try {
+      const token = await user.getIdToken()
+      const res = await fetch(`/api/bookings/${booking.id}/checkin`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        const msg = data.error || "Check-in failed"
+        const isTimeError = msg.toLowerCase().includes("before the scheduled")
+        throw new Error(isTimeError ? "before check-in time" : msg)
+      }
+      const updated = await getBooking(booking.id)
+      if (updated) setBooking(updated)
+      toast({
+        title: "Checked in",
+        description: "Check-in completed successfully.",
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ""
+      const isTimeError = message.toLowerCase().includes("before check-in time")
+      toast({
+        title: isTimeError ? "Check-in not available yet" : "Error",
+        description: isTimeError
+          ? "You can check in only after the scheduled check-in time on the event date."
+          : "Check-in failed. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setCheckingIn(false)
+    }
+  }
 
   const handleUserCheckout = async () => {
+    if (!user) return
     setCheckingOut(true)
     try {
-      await userCheckOut(booking.id)
+      const token = await user.getIdToken()
+      const res = await fetch(`/api/bookings/${booking.id}/checkout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) {
+        const msg = data.error || "Checkout failed"
+        const isWindowError =
+          msg.toLowerCase().includes("before check-in window") ||
+          msg.toLowerCase().includes("not allowed before")
+        throw new Error(isWindowError ? "before check-in window" : msg)
+      }
       const updated = await getBooking(booking.id)
       if (updated) setBooking(updated)
       toast({
@@ -210,7 +261,7 @@ export default function BookingDetailPage() {
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle>{booking.listingTitle}</CardTitle>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Badge
                     variant="secondary"
                     className={BOOKING_STATUS_COLORS[booking.status]}
@@ -223,6 +274,20 @@ export default function BookingDetailPage() {
                   >
                     {PAYMENT_STATUS_LABELS[booking.paymentStatus]}
                   </Badge>
+                  {booking.status === "cancelled" &&
+                    (booking.refundStatus === "refund_requested" ||
+                      booking.refundStatus === "requested" ||
+                      booking.refundStatus === "approved" ||
+                      booking.refundStatus === "rejected" ||
+                      booking.refundStatus === "refunded" ||
+                      booking.refundStatus === "processed") && (
+                      <Badge
+                        variant="outline"
+                        className={REFUND_STATUS_COLORS[booking.refundStatus] || ""}
+                      >
+                        {REFUND_STATUS_LABELS[booking.refundStatus] || booking.refundStatus}
+                      </Badge>
+                    )}
                 </div>
               </div>
             </CardHeader>
@@ -266,8 +331,30 @@ export default function BookingDetailPage() {
                 <div className="flex items-start gap-3">
                   <CalendarDays className="mt-0.5 h-4 w-4 text-muted-foreground" />
                   <div>
-                    <p className="text-xs text-muted-foreground">Check-out</p>
+                    <p className="text-xs text-muted-foreground">Check-out (event end)</p>
                     <p className="text-sm font-medium text-foreground">{checkOut}</p>
+                  </div>
+                </div>
+              )}
+              {booking.checkInAt?.toDate && (
+                <div className="flex items-start gap-3">
+                  <Clock className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Actual check-in</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {booking.checkInAt.toDate().toLocaleString("en-IN")}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {booking.checkOutAt?.toDate && (
+                <div className="flex items-start gap-3">
+                  <Clock className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Actual check-out</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {booking.checkOutAt.toDate().toLocaleString("en-IN")}
+                    </p>
                   </div>
                 </div>
               )}
@@ -442,27 +529,39 @@ export default function BookingDetailPage() {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          {canCheckout && (
-            <>
-              <Button
-                onClick={handleUserCheckout}
-                disabled={checkingOut || !canCheckoutNow}
-                className="w-full"
-              >
-                {checkingOut ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                )}
-                Check Out
-              </Button>
-              {!canCheckoutNow && scheduledCheckInAt && (
-                <p className="text-xs text-muted-foreground">
-                  Checkout will be available after{" "}
-                  {scheduledCheckInAt.toLocaleString("en-IN")}.
-                </p>
+          {canCheckIn && (
+            <Button
+              onClick={handleUserCheckIn}
+              disabled={checkingIn}
+              className="w-full"
+            >
+              {checkingIn ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="mr-2 h-4 w-4" />
               )}
-            </>
+              Check In
+            </Button>
+          )}
+          {canCheckout && (
+            <Button
+              onClick={handleUserCheckout}
+              disabled={checkingOut}
+              className="w-full"
+            >
+              {checkingOut ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="mr-2 h-4 w-4" />
+              )}
+              Check Out
+            </Button>
+          )}
+          {booking.status === "confirmed" && !canCheckIn && scheduledCheckInAt && (
+            <p className="text-xs text-muted-foreground">
+              Check-in will be available after{" "}
+              {scheduledCheckInAt.toLocaleString("en-IN")}.
+            </p>
           )}
         </div>
       </div>

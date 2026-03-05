@@ -60,6 +60,8 @@ const DEFAULT_LISTING = {
   addons: [] as ListingAddon[],
   isActive: true,
   isFeatured: false,
+  defaultCheckInTime: "09:00",
+  defaultCheckOutTime: "18:00",
 }
 
 function buildFormState(initialData?: Listing) {
@@ -93,6 +95,14 @@ function buildFormState(initialData?: Listing) {
     addons: Array.isArray(initialData.addons) ? initialData.addons : [],
     isActive: initialData.isActive ?? DEFAULT_LISTING.isActive,
     isFeatured: initialData.isFeatured ?? DEFAULT_LISTING.isFeatured,
+    defaultCheckInTime:
+      typeof initialData.defaultCheckInTime === "string" && initialData.defaultCheckInTime
+        ? initialData.defaultCheckInTime
+        : DEFAULT_LISTING.defaultCheckInTime,
+    defaultCheckOutTime:
+      typeof initialData.defaultCheckOutTime === "string" && initialData.defaultCheckOutTime
+        ? initialData.defaultCheckOutTime
+        : DEFAULT_LISTING.defaultCheckOutTime,
   }
 }
 
@@ -438,6 +448,40 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
                 onCheckedChange={(c) => setForm({ ...form, isFeatured: c })}
               />
               <Label>Featured</Label>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Check-in & Check-out timing */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Check-in & Check-out timing</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Default times used when creating bookings for this listing. Guests can check in from the check-in time and must check out by the check-out time on the event date.
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label>Default check-in time</Label>
+              <Input
+                type="time"
+                value={form.defaultCheckInTime}
+                onChange={(e) =>
+                  setForm({ ...form, defaultCheckInTime: e.target.value })
+                }
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>Default check-out time</Label>
+              <Input
+                type="time"
+                value={form.defaultCheckOutTime}
+                onChange={(e) =>
+                  setForm({ ...form, defaultCheckOutTime: e.target.value })
+                }
+              />
             </div>
           </div>
         </CardContent>
