@@ -52,12 +52,17 @@ export default function ListingDetailPage() {
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     addDays(new Date(), 1)
   )
+  const [selectedCheckOutDate, setSelectedCheckOutDate] = useState<Date | undefined>(
+    addDays(new Date(), 2)
+  )
   const [selectedSlot, setSelectedSlot] = useState<ListingSlot | null>(null)
   const [guestCount, setGuestCount] = useState(1)
   const [unitsBooked, setUnitsBooked] = useState(1)
   const [selectedAddons, setSelectedAddons] = useState<Record<string, boolean>>({})
   const [currentImage, setCurrentImage] = useState(0)
-  const [currentImageFailed, setCurrentImageFailed] = useState(false)
+  const [failedImageUrls, setFailedImageUrls] = useState<Record<string, boolean>>({})
+  const [touchStartX, setTouchStartX] = useState<number | null>(null)
+  const [touchEndX, setTouchEndX] = useState<number | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -153,6 +158,17 @@ export default function ListingDetailPage() {
     return Number(defaultLock.bookedUnits || 0) >= (listing.inventory || 1)
   }
 
+  function isStayRangeAvailable(checkIn: Date, checkOut: Date): boolean {
+    for (
+      let cursor = startOfDay(checkIn);
+      cursor < startOfDay(checkOut);
+      cursor = addDays(cursor, 1)
+    ) {
+      if (isDateSoldOut(cursor)) return false
+    }
+    return true
+  }
+
   function calculatePrice(): {
     base: number
     addonsTotal: number
@@ -162,7 +178,20 @@ export default function ListingDetailPage() {
   } {
     if (!listing) return { base: 0, addonsTotal: 0, serviceFee: 0, tax: 0, total: 0 }
 
-    let base = listing.pricePerUnit * unitsBooked
+    const isStayListing = listing.type === "room" || listing.type === "dormitory"
+    const stayDays =
+      isStayListing && selectedDate && selectedCheckOutDate
+        ? Math.max(
+            1,
+            Math.ceil(
+              (startOfDay(selectedCheckOutDate).getTime() -
+                startOfDay(selectedDate).getTime()) /
+                (24 * 60 * 60 * 1000)
+            )
+          )
+        : 1
+
+    let base = listing.pricePerUnit * unitsBooked * stayDays
     if (listing.slotsEnabled && selectedSlot) {
       base = selectedSlot.price * unitsBooked
     }
@@ -200,6 +229,25 @@ export default function ListingDetailPage() {
       toast.error("Please select a time slot")
       return
     }
+    const minGuests = Math.max(1, Number(listing?.minGuestCount || 1))
+    if (guestCount < minGuests) {
+      toast.error(`Minimum ${minGuests} guest(s) required for this listing`)
+      return
+    }
+    if (
+      (listing?.type === "room" || listing?.type === "dormitory") &&
+      (!selectedCheckOutDate || !selectedDate || selectedCheckOutDate <= selectedDate)
+    ) {
+      toast.error("Please select a valid check-out date")
+      return
+    }
+    if (
+      (listing?.type === "room" || listing?.type === "dormitory") &&
+      !isStayRangeAvailable(selectedDate, selectedCheckOutDate as Date)
+    ) {
+      toast.error("Some dates in the selected stay range are sold out")
+      return
+    }
 
     const slotId = selectedSlot?.slotId || "default"
     const available = getAvailableUnits(slotId)
@@ -209,6 +257,17 @@ export default function ListingDetailPage() {
     }
 
     const price = calculatePrice()
+    const stayDays =
+      listing?.type === "room" || listing?.type === "dormitory"
+        ? Math.max(
+            1,
+            Math.ceil(
+              (startOfDay(selectedCheckOutDate as Date).getTime() -
+                startOfDay(selectedDate).getTime()) /
+                (24 * 60 * 60 * 1000)
+            )
+          )
+        : 1
     const addonsArr: SelectedAddon[] = []
     listing?.addons?.forEach((addon) => {
       if (selectedAddons[addon.name]) {
@@ -225,10 +284,15 @@ export default function ListingDetailPage() {
       listingId: listing!.id,
       branchId: listing!.branchId,
       checkInDate: format(selectedDate, "yyyy-MM-dd"),
+      checkOutDate:
+        listing?.type === "room" || listing?.type === "dormitory"
+          ? format(selectedCheckOutDate as Date, "yyyy-MM-dd")
+          : null,
       slotId: selectedSlot?.slotId || null,
       slotName: selectedSlot?.name || null,
       guestCount,
       unitsBooked,
+      stayDays,
       selectedAddons: addonsArr,
       basePrice: price.base,
       addonsTotal: price.addonsTotal,
@@ -260,18 +324,74 @@ export default function ListingDetailPage() {
           (image.startsWith("https://") || image.startsWith("http://"))
       )
   }, [listing?.images])
+  const visibleImages = useMemo(
+    () => images.filter((url) => !failedImageUrls[url]),
+    [images, failedImageUrls]
+  )
   const today = startOfDay(new Date())
   const maxDate = addDays(today, settings.maxBookingWindowDays)
 
   useEffect(() => {
-    if (currentImage >= images.length) {
+    if (currentImage >= visibleImages.length) {
       setCurrentImage(0)
     }
-  }, [currentImage, images.length])
+  }, [currentImage, visibleImages.length])
 
   useEffect(() => {
-    setCurrentImageFailed(false)
-  }, [currentImage, id])
+    setFailedImageUrls({})
+    setCurrentImage(0)
+  }, [id, images.length])
+
+  useEffect(() => {
+    if (!selectedDate) return
+    if (!selectedCheckOutDate || selectedCheckOutDate <= selectedDate) {
+      setSelectedCheckOutDate(addDays(selectedDate, 1))
+    }
+  }, [selectedDate, selectedCheckOutDate])
+
+  useEffect(() => {
+    if (!listing) return
+    const minGuests = Math.max(1, Number(listing.minGuestCount || 1))
+    setGuestCount((prev) => Math.max(minGuests, prev))
+  }, [listing])
+
+  const goToPreviousImage = useCallback(() => {
+    if (visibleImages.length <= 1) return
+    setCurrentImage((prev) => (prev === 0 ? visibleImages.length - 1 : prev - 1))
+  }, [visibleImages.length])
+
+  const goToNextImage = useCallback(() => {
+    if (visibleImages.length <= 1) return
+    setCurrentImage((prev) => (prev === visibleImages.length - 1 ? 0 : prev + 1))
+  }, [visibleImages.length])
+
+  useEffect(() => {
+    if (visibleImages.length <= 1) return
+    const intervalId = window.setInterval(() => {
+      setCurrentImage((prev) => (prev === visibleImages.length - 1 ? 0 : prev + 1))
+    }, 4000)
+    return () => window.clearInterval(intervalId)
+  }, [visibleImages.length])
+
+  function handleGalleryTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    setTouchStartX(e.touches[0]?.clientX ?? null)
+    setTouchEndX(null)
+  }
+
+  function handleGalleryTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    setTouchEndX(e.touches[0]?.clientX ?? null)
+  }
+
+  function handleGalleryTouchEnd() {
+    if (touchStartX === null || touchEndX === null) return
+    const swipeDistance = touchStartX - touchEndX
+    if (Math.abs(swipeDistance) < 40) return
+    if (swipeDistance > 0) {
+      goToNextImage()
+      return
+    }
+    goToPreviousImage()
+  }
 
   if (loading) {
     return (
@@ -306,14 +426,24 @@ export default function ListingDetailPage() {
             {/* Left Column - Info */}
             <div className="flex flex-col gap-6 lg:col-span-2">
               {/* Image Gallery */}
-              <div className="relative overflow-hidden rounded-xl">
+              <div
+                className="relative overflow-hidden rounded-xl"
+                onTouchStart={handleGalleryTouchStart}
+                onTouchMove={handleGalleryTouchMove}
+                onTouchEnd={handleGalleryTouchEnd}
+              >
                 <div className="aspect-[16/9] bg-muted">
-                  {images.length > 0 && !currentImageFailed ? (
+                  {visibleImages.length > 0 ? (
                     <img
-                      src={images[currentImage]}
+                      src={visibleImages[currentImage]}
                       alt={`${listing.title} - Image ${currentImage + 1}`}
                       className="h-full w-full object-cover"
-                      onError={() => setCurrentImageFailed(true)}
+                      onError={() =>
+                        setFailedImageUrls((prev) => ({
+                          ...prev,
+                          [visibleImages[currentImage]]: true,
+                        }))
+                      }
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center">
@@ -323,36 +453,24 @@ export default function ListingDetailPage() {
                     </div>
                   )}
                 </div>
-                {images.length > 1 && (
+                {visibleImages.length > 1 && (
                   <>
                     <button
-                      onClick={() =>
-                        setCurrentImage(
-                          currentImage === 0
-                            ? images.length - 1
-                            : currentImage - 1
-                        )
-                      }
+                      onClick={goToPreviousImage}
                       className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 backdrop-blur-sm transition-colors hover:bg-background"
                       aria-label="Previous image"
                     >
                       <ChevronLeft className="h-5 w-5" />
                     </button>
                     <button
-                      onClick={() =>
-                        setCurrentImage(
-                          currentImage === images.length - 1
-                            ? 0
-                            : currentImage + 1
-                        )
-                      }
+                      onClick={goToNextImage}
                       className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-background/80 p-2 backdrop-blur-sm transition-colors hover:bg-background"
                       aria-label="Next image"
                     >
                       <ChevronRight className="h-5 w-5" />
                     </button>
                     <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-                      {images.map((_, i) => (
+                      {visibleImages.map((_, i) => (
                         <button
                           key={i}
                           onClick={() => setCurrentImage(i)}
@@ -368,6 +486,26 @@ export default function ListingDetailPage() {
                   </>
                 )}
               </div>
+              {visibleImages.length > 1 && (
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                  {visibleImages.map((imageUrl, i) => (
+                    <button
+                      key={`${imageUrl}-${i}`}
+                      type="button"
+                      onClick={() => setCurrentImage(i)}
+                      className={`overflow-hidden rounded-md border ${
+                        i === currentImage ? "border-primary" : "border-border"
+                      }`}
+                    >
+                      <img
+                        src={imageUrl}
+                        alt={`${listing.title} thumbnail ${i + 1}`}
+                        className="h-16 w-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Title & Badge */}
               <div className="flex flex-col gap-2">
@@ -506,6 +644,46 @@ export default function ListingDetailPage() {
                       }
                       className="rounded-md border"
                     />
+                    {(listing.type === "room" || listing.type === "dormitory") && (
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div className="flex flex-col gap-2">
+                          <Label className="text-xs text-muted-foreground">Check-in</Label>
+                          <Input
+                            type="date"
+                            value={selectedDate ? format(selectedDate, "yyyy-MM-dd") : ""}
+                            min={format(addDays(today, 1), "yyyy-MM-dd")}
+                            max={format(maxDate, "yyyy-MM-dd")}
+                            onChange={(e) => {
+                              if (!e.target.value) return
+                              setSelectedDate(new Date(`${e.target.value}T00:00:00`))
+                            }}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Label className="text-xs text-muted-foreground">Check-out</Label>
+                          <Input
+                            type="date"
+                            value={
+                              selectedCheckOutDate
+                                ? format(selectedCheckOutDate, "yyyy-MM-dd")
+                                : ""
+                            }
+                            min={
+                              selectedDate
+                                ? format(addDays(selectedDate, 1), "yyyy-MM-dd")
+                                : format(addDays(today, 2), "yyyy-MM-dd")
+                            }
+                            max={format(addDays(maxDate, 1), "yyyy-MM-dd")}
+                            onChange={(e) => {
+                              if (!e.target.value) return
+                              setSelectedCheckOutDate(
+                                new Date(`${e.target.value}T00:00:00`)
+                              )
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Time Slots */}
@@ -569,11 +747,14 @@ export default function ListingDetailPage() {
                       <Label className="text-sm">Guests</Label>
                       <Input
                         type="number"
-                        min={1}
+                        min={Math.max(1, Number(listing.minGuestCount || 1))}
                         max={listing.capacity}
                         value={guestCount}
                         onChange={(e) =>
-                          setGuestCount(parseInt(e.target.value) || 1)
+                          setGuestCount(
+                            parseInt(e.target.value) ||
+                              Math.max(1, Number(listing.minGuestCount || 1))
+                          )
                         }
                       />
                     </div>
@@ -628,7 +809,11 @@ export default function ListingDetailPage() {
                   {/* Price Breakdown */}
                   <div className="flex flex-col gap-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Base price</span>
+                      <span className="text-muted-foreground">
+                        {listing.type === "room" || listing.type === "dormitory"
+                          ? "Base price (24h units)"
+                          : "Base price"}
+                      </span>
                       <span className="text-foreground">{`\u20B9${price.base.toLocaleString("en-IN")}`}</span>
                     </div>
                     {price.addonsTotal > 0 && (

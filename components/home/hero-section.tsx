@@ -6,28 +6,28 @@ import { Button } from "@/components/ui/button"
 import { Search, ArrowRight, Shield, Clock, CreditCard } from "lucide-react"
 import { getSettings } from "@/lib/firebase-db"
 import { DEFAULT_SETTINGS } from "@/lib/constants"
+import type { HeroBanner } from "@/lib/types"
 
 export function HeroSection() {
-  const [homeImages, setHomeImages] = useState<string[]>(
-    DEFAULT_SETTINGS.heroBanners.map((banner) => banner.imageUrl)
-  )
+  const [homeBanners, setHomeBanners] = useState<HeroBanner[]>(DEFAULT_SETTINGS.heroBanners)
 
   useEffect(() => {
     let mounted = true
     getSettings()
       .then((settings) => {
         if (!mounted) return
-        const banners =
-          settings.heroBanners?.slice(0, 3).map((banner) => banner.imageUrl) || []
-        setHomeImages(
-          banners.length > 0
-            ? banners
-            : DEFAULT_SETTINGS.heroBanners.map((banner) => banner.imageUrl)
-        )
+        const banners = (settings.heroBanners || [])
+          .filter((banner) => String(banner?.imageUrl || "").trim().length > 0)
+          .map((banner, index) => ({
+            imageUrl: String(banner.imageUrl || "").trim(),
+            title: String(banner.title || `Venue View ${index + 1}`).trim(),
+            subtitle: String(banner.subtitle || "").trim(),
+          }))
+        setHomeBanners(banners.length > 0 ? banners : DEFAULT_SETTINGS.heroBanners)
       })
       .catch(() => {
         if (mounted) {
-          setHomeImages(DEFAULT_SETTINGS.heroBanners.map((banner) => banner.imageUrl))
+          setHomeBanners(DEFAULT_SETTINGS.heroBanners)
         }
       })
 
@@ -36,9 +36,13 @@ export function HeroSection() {
     }
   }, [])
 
-  const visibleImages = useMemo(
-    () => homeImages.filter((url) => typeof url === "string" && url.trim().length > 0),
-    [homeImages]
+  const visibleBanners = useMemo(
+    () =>
+      homeBanners.filter(
+        (banner) =>
+          typeof banner?.imageUrl === "string" && banner.imageUrl.trim().length > 0
+      ),
+    [homeBanners]
   )
 
   return (
@@ -72,7 +76,7 @@ export function HeroSection() {
             </Button>
           </div>
 
-          {visibleImages.length > 0 && (
+          {visibleBanners.length > 0 && (
             <div className="w-full">
               <div className="mb-3 text-left">
                 <p className="text-xs font-semibold uppercase tracking-wide text-primary">
@@ -83,22 +87,25 @@ export function HeroSection() {
                 </h3>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {visibleImages.map((imageUrl, index) => (
+                {visibleBanners.map((banner, index) => (
                   <div
-                    key={`${imageUrl}-${index}`}
+                    key={`${banner.imageUrl}-${index}`}
                     className="overflow-hidden rounded-xl border bg-muted/40"
                   >
                     <div className="flex aspect-[4/3] items-center justify-center bg-background p-2">
                       <img
-                        src={imageUrl}
+                        src={banner.imageUrl}
                         alt={`Anga Function Hall image ${index + 1}`}
                         className="h-full w-full object-contain"
                       />
                     </div>
                     <div className="border-t bg-background px-3 py-2 text-left">
-                      <p className="text-xs font-medium text-muted-foreground">
-                        {`Venue View ${index + 1}`}
+                      <p className="text-xs font-semibold text-foreground">
+                        {banner.title || `Venue View ${index + 1}`}
                       </p>
+                      {banner.subtitle && (
+                        <p className="mt-1 text-xs text-muted-foreground">{banner.subtitle}</p>
+                      )}
                     </div>
                   </div>
                 ))}

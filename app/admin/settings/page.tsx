@@ -22,7 +22,7 @@ import {
 } from "@/lib/firebase-storage"
 import { toast } from "sonner"
 import { useAuth } from "@/lib/hooks/use-auth"
-import { Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 
 export default function SettingsPage() {
   const { isAdminUser } = useAuth()
@@ -114,16 +114,21 @@ export default function SettingsPage() {
     }
   }
 
-  function getHomeBannerUrls(items: SiteSettings["heroBanners"]) {
-    const fallback = DEFAULT_SETTINGS.heroBanners
-    const normalized = [...fallback].map((item, index) => {
-      const current = items?.[index]
-      return {
-        ...item,
-        imageUrl: current?.imageUrl || item.imageUrl,
-      }
-    })
-    return normalized
+  function getHomeBanners(items: SiteSettings["heroBanners"]) {
+    const list = Array.isArray(items) ? items : []
+    const normalized = list.map((item, index) => ({
+      imageUrl: String(item?.imageUrl || "").trim(),
+      title: String(item?.title || `Home Banner ${index + 1}`).trim(),
+      subtitle: String(item?.subtitle || "").trim(),
+    }))
+
+    return normalized.length > 0
+      ? normalized
+      : DEFAULT_SETTINGS.heroBanners.map((item, index) => ({
+          imageUrl: String(item.imageUrl || "").trim(),
+          title: String(item.title || `Home Banner ${index + 1}`).trim(),
+          subtitle: String(item.subtitle || "").trim(),
+        }))
   }
 
   async function handleBannerUpload(
@@ -141,7 +146,7 @@ export default function SettingsPage() {
       const path = getBannerImagePath(file.name)
       const imageUrl = await uploadImage(file, path)
       setSettings((prev) => {
-        const nextBanners = getHomeBannerUrls(prev.heroBanners)
+        const nextBanners = getHomeBanners(prev.heroBanners)
         nextBanners[index] = {
           ...nextBanners[index],
           imageUrl,
@@ -157,6 +162,40 @@ export default function SettingsPage() {
       setUploadingBannerIndex(null)
       e.target.value = ""
     }
+  }
+
+  function updateHomeBanner(
+    index: number,
+    field: "title" | "subtitle",
+    value: string
+  ) {
+    setSettings((prev) => {
+      const nextBanners = getHomeBanners(prev.heroBanners)
+      nextBanners[index] = {
+        ...nextBanners[index],
+        [field]: value,
+      }
+      return { ...prev, heroBanners: nextBanners }
+    })
+  }
+
+  function addHomeBanner() {
+    setSettings((prev) => {
+      const nextBanners = getHomeBanners(prev.heroBanners)
+      nextBanners.push({
+        imageUrl: "",
+        title: `Home Banner ${nextBanners.length + 1}`,
+        subtitle: "",
+      })
+      return { ...prev, heroBanners: nextBanners }
+    })
+  }
+
+  function removeHomeBanner(index: number) {
+    setSettings((prev) => {
+      const nextBanners = getHomeBanners(prev.heroBanners).filter((_, i) => i !== index)
+      return { ...prev, heroBanners: nextBanners }
+    })
   }
 
   const emailPreviewValues: Record<string, string> = {
@@ -261,29 +300,66 @@ export default function SettingsPage() {
             </div>
 
             <div className="flex flex-col gap-4">
-              <div>
-                <Label className="text-sm font-medium">Home Page Images</Label>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Upload 3 images shown on the Home page.
-                </p>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label className="text-sm font-medium">Home Page Images</Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Add multiple images and descriptions for the home page.
+                  </p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addHomeBanner}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add Image
+                </Button>
               </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                {getHomeBannerUrls(settings.heroBanners).map((banner, index) => (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {getHomeBanners(settings.heroBanners).map((banner, index) => (
                   <div
                     key={`home-banner-${index}`}
                     className="flex flex-col gap-2 rounded-lg border p-3"
                   >
-                    <img
-                      src={banner.imageUrl}
-                      alt={`Home image ${index + 1}`}
-                      className="h-32 w-full rounded object-cover"
-                    />
+                    {banner.imageUrl ? (
+                      <img
+                        src={banner.imageUrl}
+                        alt={`Home image ${index + 1}`}
+                        className="h-32 w-full rounded object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-32 w-full items-center justify-center rounded border text-xs text-muted-foreground">
+                        No image uploaded
+                      </div>
+                    )}
                     <Input
                       type="file"
                       accept="image/*"
                       onChange={(e) => handleBannerUpload(e, index)}
                       disabled={uploadingBannerIndex === index}
                     />
+                    <Input
+                      value={banner.title}
+                      onChange={(e) =>
+                        updateHomeBanner(index, "title", e.target.value)
+                      }
+                      placeholder="Image title"
+                    />
+                    <Textarea
+                      rows={2}
+                      value={banner.subtitle}
+                      onChange={(e) =>
+                        updateHomeBanner(index, "subtitle", e.target.value)
+                      }
+                      placeholder="Image description"
+                    />
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => removeHomeBanner(index)}
+                      disabled={getHomeBanners(settings.heroBanners).length <= 1}
+                    >
+                      <Trash2 className="mr-1 h-4 w-4" />
+                      Remove
+                    </Button>
                     <p className="text-xs text-muted-foreground">
                       {uploadingBannerIndex === index
                         ? "Uploading..."

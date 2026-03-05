@@ -55,6 +55,7 @@ export interface Listing {
   amenities: string[]
   rules: string[]
   capacity: number
+  minGuestCount?: number
   inventory: number
   pricePerUnit: number
   originalPrice?: number

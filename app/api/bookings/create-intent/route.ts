@@ -32,6 +32,12 @@ async function resolveBranchId(inputBranchId?: string, listingBranchId?: string)
   return ""
 }
 
+function isSlotBasedListing(type: string) {
+  return ["function_hall", "open_function_hall", "dining_hall", "local_tour"].includes(
+    String(type || "")
+  )
+}
+
 export async function POST(request: Request) {
   try {
     const idToken = readBearerToken(request)
@@ -76,6 +82,41 @@ export async function POST(request: Request) {
         { error: "This listing is currently unavailable." },
         { status: 400 }
       )
+    }
+    const minGuestCount = Math.max(1, Number(listing.minGuestCount || 1))
+    const requestedGuestCount = Math.max(1, Number(body.guestCount || 1))
+    if (requestedGuestCount < minGuestCount) {
+      return NextResponse.json(
+        { error: `Minimum ${minGuestCount} guest(s) required for this listing.` },
+        { status: 400 }
+      )
+    }
+    if (requestedGuestCount > Math.max(1, Number(listing.capacity || 1))) {
+      return NextResponse.json(
+        { error: "Guest count cannot exceed listing capacity." },
+        { status: 400 }
+      )
+    }
+    const checkOutDate = body.checkOutDate ? String(body.checkOutDate) : null
+    if (!isSlotBasedListing(listing.type)) {
+      if (!checkOutDate) {
+        return NextResponse.json(
+          { error: "Check-out date is required for stay bookings." },
+          { status: 400 }
+        )
+      }
+      const checkIn = new Date(`${body.checkInDate}T00:00:00`)
+      const checkOut = new Date(`${checkOutDate}T00:00:00`)
+      if (
+        Number.isNaN(checkIn.getTime()) ||
+        Number.isNaN(checkOut.getTime()) ||
+        checkOut <= checkIn
+      ) {
+        return NextResponse.json(
+          { error: "Check-out date must be after check-in date." },
+          { status: 400 }
+        )
+      }
     }
     const branchIdToUse = await resolveBranchId(body.branchId, listing.branchId)
     if (!branchIdToUse) {
@@ -220,6 +261,7 @@ export async function POST(request: Request) {
       listingId: body.listingId,
       branchId: branchIdToUse,
       checkInDate: body.checkInDate,
+      checkOutDate,
       slotId: body.slotId || null,
       slotName: body.slotName || null,
       guestCount: Math.max(1, Number(body.guestCount || 1)),

@@ -132,6 +132,11 @@ export async function getListing(id: string): Promise<Listing | null> {
 export async function createListing(
   data: Omit<Listing, "id" | "createdAt" | "updatedAt">
 ) {
+  const capacity = Math.max(1, Number(data.capacity || 1))
+  const minGuestCount = Math.min(
+    capacity,
+    Math.max(1, Number(data.minGuestCount || 1))
+  )
   const normalizedRoomId = normalizeRoomId(String(data.roomId || ""))
   if (data.type === "room" && !normalizedRoomId) {
     throw new Error("Room ID is required for room listings.")
@@ -144,6 +149,8 @@ export async function createListing(
   }
   const ref = await addDoc(collection(db, "listings"), {
     ...data,
+    capacity,
+    minGuestCount,
     roomId: normalizedRoomId || "",
     roomNumber: String(data.roomNumber || "").trim(),
     roomTypeDetail: data.roomTypeDetail || "ac",
@@ -154,6 +161,18 @@ export async function createListing(
 }
 
 export async function updateListing(id: string, data: Partial<Listing>) {
+  const normalizedCapacity =
+    data.capacity === undefined ? undefined : Math.max(1, Number(data.capacity || 1))
+  const normalizedMinGuestCount =
+    data.minGuestCount === undefined
+      ? undefined
+      : Math.max(1, Number(data.minGuestCount || 1))
+  const minGuestCount =
+    normalizedMinGuestCount === undefined
+      ? undefined
+      : normalizedCapacity === undefined
+        ? normalizedMinGuestCount
+        : Math.min(normalizedCapacity, normalizedMinGuestCount)
   const normalizedRoomId = normalizeRoomId(String(data.roomId || ""))
   if (data.type === "room" && !normalizedRoomId) {
     throw new Error("Room ID is required for room listings.")
@@ -166,6 +185,8 @@ export async function updateListing(id: string, data: Partial<Listing>) {
   }
   await updateDoc(doc(db, "listings", id), {
     ...data,
+    ...(normalizedCapacity !== undefined ? { capacity: normalizedCapacity } : {}),
+    ...(minGuestCount !== undefined ? { minGuestCount } : {}),
     roomId: normalizedRoomId || "",
     roomNumber: String(data.roomNumber || "").trim(),
     roomTypeDetail: data.roomTypeDetail || "ac",

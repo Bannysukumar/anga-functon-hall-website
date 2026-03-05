@@ -319,7 +319,8 @@ function isSlotBased(listingType: string) {
 
 function buildCheckInOutSchedule(
   listingType: string,
-  checkInDate: string
+  checkInDate: string,
+  checkOutDate?: string | null
 ): {
   scheduledCheckInAt: admin.firestore.Timestamp
   scheduledCheckOutAt: admin.firestore.Timestamp
@@ -334,11 +335,39 @@ function buildCheckInOutSchedule(
       scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(slotEnd),
     }
   }
+  if (checkOutDate) {
+    const parsed = new Date(`${checkOutDate}T11:00:00`)
+    if (!Number.isNaN(parsed.getTime()) && parsed > start) {
+      return {
+        scheduledCheckInAt: admin.firestore.Timestamp.fromDate(start),
+        scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(parsed),
+      }
+    }
+  }
   end.setDate(end.getDate() + 1)
   return {
     scheduledCheckInAt: admin.firestore.Timestamp.fromDate(start),
     scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(end),
   }
+}
+
+function getStayDateKeys(checkInDate: string, checkOutDate?: string | null): string[] {
+  const checkIn = new Date(`${checkInDate}T00:00:00`)
+  if (Number.isNaN(checkIn.getTime())) return [toDateKey(checkInDate)]
+  const checkoutCandidate = checkOutDate ? new Date(`${checkOutDate}T00:00:00`) : null
+  const checkOut =
+    checkoutCandidate && !Number.isNaN(checkoutCandidate.getTime()) && checkoutCandidate > checkIn
+      ? checkoutCandidate
+      : new Date(checkIn.getTime() + 24 * 60 * 60 * 1000)
+
+  const keys: string[] = []
+  for (let cursor = new Date(checkIn); cursor < checkOut; cursor.setDate(cursor.getDate() + 1)) {
+    const yyyy = cursor.getFullYear()
+    const mm = String(cursor.getMonth() + 1).padStart(2, "0")
+    const dd = String(cursor.getDate()).padStart(2, "0")
+    keys.push(`${yyyy}${mm}${dd}`)
+  }
+  return keys.length ? keys : [toDateKey(checkInDate)]
 }
 
 async function allocateResourcesInTransaction(
@@ -1020,12 +1049,26 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
     if (!branchSnap.exists) throw new HttpsError("not-found", "Branch not found.")
 
     const listing = listingSnap.data() || {}
+    const minGuestCount = Math.max(1, Number(listing.minGuestCount || 1))
+    const guestCount = Math.max(1, Number(intent.guestCount || 1))
+    if (guestCount < minGuestCount) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Minimum ${minGuestCount} guest(s) required for this listing.`
+      )
+    }
     const unitsBooked = Math.max(1, Number(intent.unitsBooked || 1))
-    const dateKey = toDateKey(String(intent.checkInDate || ""))
-    const lockDate = String(intent.checkInDate || "")
+    const checkInDate = String(intent.checkInDate || "")
+    const checkOutDate = intent.checkOutDate ? String(intent.checkOutDate) : null
+    const dateKey = toDateKey(checkInDate)
+    const lockDate = checkInDate
+    const stayDateKeys = isSlotBased(String(listing.type || "function_hall"))
+      ? [dateKey]
+      : getStayDateKeys(checkInDate, checkOutDate)
     const schedule = buildCheckInOutSchedule(
       String(listing.type || "function_hall"),
-      String(intent.checkInDate || "")
+      checkInDate,
+      checkOutDate
     )
     const bookingRef = db.collection("bookings").doc()
     const paymentRef = db.collection("payments").doc()
@@ -1036,16 +1079,28 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
     const currentCounter = Number(counterSnap.data()?.value || 0) + 1
     const invoiceNumber = nextInvoiceNumber(currentCounter)
 
-    const allocation = await allocateResourcesInTransaction(transaction, {
-      bookingRef,
-      listingRef,
-      listing,
-      dateKey,
-      lockDate,
-      slotId: intent.slotId || null,
-      unitsBooked,
-      userId: uid,
-    })
+    let allocation: Awaited<ReturnType<typeof allocateResourcesInTransaction>> | null = null
+    for (const key of stayDateKeys) {
+      const year = key.slice(0, 4)
+      const month = key.slice(4, 6)
+      const day = key.slice(6, 8)
+      const allocationForDay = await allocateResourcesInTransaction(transaction, {
+        bookingRef,
+        listingRef,
+        listing,
+        dateKey: key,
+        lockDate: `${year}-${month}-${day}`,
+        slotId: intent.slotId || null,
+        unitsBooked,
+        userId: uid,
+      })
+      if (!allocation) {
+        allocation = allocationForDay
+      }
+    }
+    if (!allocation) {
+      throw new HttpsError("failed-precondition", "Could not allocate resources.")
+    }
     transaction.set(counterRef, { value: currentCounter }, { merge: true })
 
     const pricing = intent.pricing || {}
@@ -1116,11 +1171,13 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
       listingType: listing.type || "function_hall",
       listingTitle: listing.title || "Listing",
       branchName: branchSnap.data()?.name || "",
-      checkInDate: admin.firestore.Timestamp.fromDate(new Date(intent.checkInDate)),
-      checkOutDate: null,
+      checkInDate: admin.firestore.Timestamp.fromDate(new Date(checkInDate)),
+      checkOutDate: checkOutDate
+        ? admin.firestore.Timestamp.fromDate(new Date(checkOutDate))
+        : null,
       slotId: intent.slotId || null,
       slotName: intent.slotName || null,
-      guestCount: Math.max(1, Number(intent.guestCount || 1)),
+      guestCount,
       unitsBooked,
       selectedAddons: intent.selectedAddons || [],
       basePrice: Number(pricing.basePrice || 0),

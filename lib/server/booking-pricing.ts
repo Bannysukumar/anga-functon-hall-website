@@ -9,6 +9,7 @@ export interface BookingIntentInput {
   listingId: string
   branchId: string
   checkInDate: string
+  checkOutDate?: string | null
   slotId: string | null
   slotName: string | null
   guestCount: number
@@ -28,6 +29,22 @@ export interface PricingBreakdown {
   dueAmount: number
 }
 
+function isSlotBasedListing(type: string) {
+  return ["function_hall", "open_function_hall", "dining_hall", "local_tour"].includes(
+    String(type || "")
+  )
+}
+
+function getStayUnits(input: BookingIntentInput, listing: Listing) {
+  if (isSlotBasedListing(listing.type)) return 1
+  if (!input.checkOutDate) return 1
+  const checkIn = new Date(`${input.checkInDate}T00:00:00`)
+  const checkOut = new Date(`${input.checkOutDate}T00:00:00`)
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) return 1
+  const diffDays = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (24 * 60 * 60 * 1000))
+  return Math.max(1, diffDays)
+}
+
 export function calculatePricing(
   listing: Listing,
   settings: SiteSettings,
@@ -35,7 +52,11 @@ export function calculatePricing(
   couponDiscount: number
 ): PricingBreakdown {
   const unitsBooked = Math.max(1, Number(input.unitsBooked || 1))
-  const basePrice = Math.max(0, Math.round((listing.pricePerUnit || 0) * unitsBooked))
+  const stayUnits = getStayUnits(input, listing)
+  const basePrice = Math.max(
+    0,
+    Math.round((listing.pricePerUnit || 0) * unitsBooked * stayUnits)
+  )
 
   const addonsTotal = input.selectedAddons.reduce((sum, addonInput) => {
     const qty = Math.max(1, Number(addonInput.quantity || 1))

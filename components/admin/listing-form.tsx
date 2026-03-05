@@ -46,6 +46,7 @@ const DEFAULT_LISTING = {
   amenities: [] as string[],
   rules: [] as string[],
   capacity: 100,
+  minGuestCount: 1,
   inventory: 1,
   pricePerUnit: 0,
   originalPrice: 0,
@@ -76,6 +77,7 @@ function buildFormState(initialData?: Listing) {
     amenities: Array.isArray(initialData.amenities) ? initialData.amenities : [],
     rules: Array.isArray(initialData.rules) ? initialData.rules : [],
     capacity: initialData.capacity ?? DEFAULT_LISTING.capacity,
+    minGuestCount: initialData.minGuestCount ?? DEFAULT_LISTING.minGuestCount,
     inventory: initialData.inventory ?? DEFAULT_LISTING.inventory,
     pricePerUnit: initialData.pricePerUnit ?? DEFAULT_LISTING.pricePerUnit,
     originalPrice: initialData.originalPrice ?? DEFAULT_LISTING.originalPrice,
@@ -96,6 +98,9 @@ function buildFormState(initialData?: Listing) {
 
 export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
   const router = useRouter()
+  const [draftImageGroupId] = useState(
+    () => `draft_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  )
   const [branches, setBranches] = useState<Branch[]>([])
   const [loadingBranches, setLoadingBranches] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -130,13 +135,13 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
       const urls: string[] = []
       for (const file of Array.from(files)) {
         const path = getListingImagePath(
-          initialData?.id || "new",
+          initialData?.id || draftImageGroupId,
           file.name
         )
         const url = await uploadImage(file, path)
         urls.push(url)
       }
-      setForm({ ...form, images: [...form.images, ...urls] })
+      setForm((prev) => ({ ...prev, images: [...prev.images, ...urls] }))
       toast.success(`${urls.length} image(s) uploaded`)
     } catch (error) {
       const message =
@@ -145,11 +150,12 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
       console.error("Listing image upload failed:", error)
     } finally {
       setUploading(false)
+      e.target.value = ""
     }
   }
 
   function removeImage(index: number) {
-    setForm({ ...form, images: form.images.filter((_, i) => i !== index) })
+    setForm((prev) => ({ ...prev, images: prev.images.filter((_, i) => i !== index) }))
   }
 
   function addSlot() {
@@ -221,6 +227,14 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
     }
     if (form.originalPrice > 0 && form.originalPrice < form.pricePerUnit) {
       toast.error("Original price must be greater than or equal to offer price")
+      return
+    }
+    if (form.minGuestCount < 1) {
+      toast.error("Minimum guests must be at least 1")
+      return
+    }
+    if (form.minGuestCount > form.capacity) {
+      toast.error("Minimum guests cannot be greater than capacity")
       return
     }
     if (form.type === "room" && !String(form.roomId || "").trim()) {
@@ -379,6 +393,23 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
               />
             </div>
             <div className="flex flex-col gap-2">
+              <Label>Minimum Guests Allowed</Label>
+              <Input
+                type="number"
+                min={1}
+                max={form.capacity}
+                value={form.minGuestCount}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    minGuestCount: parseInt(e.target.value) || 1,
+                  })
+                }
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
               <Label>Inventory (units/rooms/beds)</Label>
               <Input
                 type="number"
@@ -478,7 +509,11 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label>Base Price (per unit) *</Label>
+            <Label>
+              {form.type === "room" || form.type === "dormitory"
+                ? "Base Price (per 24 hours) *"
+                : "Base Price (per unit) *"}
+            </Label>
             <Input
               type="number"
               min={0}
@@ -491,6 +526,11 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
               }
               required
             />
+            {(form.type === "room" || form.type === "dormitory") && (
+              <p className="text-xs text-muted-foreground">
+                Billing uses check-in to check-out duration in 24-hour units.
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-2">
             <Label>Original Price (for offer display)</Label>

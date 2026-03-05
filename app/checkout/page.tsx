@@ -34,10 +34,12 @@ interface CheckoutData {
   listingId: string
   branchId: string
   checkInDate: string
+  checkOutDate: string | null
   slotId: string | null
   slotName: string | null
   guestCount: number
   unitsBooked: number
+  stayDays?: number
   selectedAddons: SelectedAddon[]
   basePrice: number
   addonsTotal: number
@@ -208,6 +210,7 @@ export default function CheckoutPage() {
           listingId: checkout.listingId,
           branchId: branchIdForIntent,
           checkInDate: checkout.checkInDate,
+          checkOutDate: checkout.checkOutDate,
           slotId: checkout.slotId,
           slotName: checkout.slotName,
           guestCount: checkout.guestCount,
@@ -366,7 +369,10 @@ export default function CheckoutPage() {
                 <div className="grid gap-3 text-sm sm:grid-cols-2">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <CalendarDays className="h-4 w-4 shrink-0" />
-                    <span>{checkout.checkInDate}</span>
+                    <span>
+                      {checkout.checkInDate}
+                      {checkout.checkOutDate ? ` to ${checkout.checkOutDate}` : ""}
+                    </span>
                   </div>
                   {branch && (
                     <div className="flex items-center gap-2 text-muted-foreground">
@@ -378,6 +384,12 @@ export default function CheckoutPage() {
                     <Users className="h-4 w-4 shrink-0" />
                     <span>{checkout.guestCount} guest(s)</span>
                   </div>
+                  {!!checkout.stayDays && checkout.stayDays > 1 && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Clock className="h-4 w-4 shrink-0" />
+                      <span>{checkout.stayDays} day stay</span>
+                    </div>
+                  )}
                   {checkout.slotName && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Clock className="h-4 w-4 shrink-0" />

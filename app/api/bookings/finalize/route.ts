@@ -73,6 +73,11 @@ export async function POST(request: Request) {
 
       const listing = listingSnap.data()
       const pricing = intent.pricing || {}
+      const minGuestCount = Math.max(1, Number(listing?.minGuestCount || 1))
+      const guestCount = Math.max(1, Number(intent.guestCount || 1))
+      if (guestCount < minGuestCount) {
+        throw new Error(`Minimum ${minGuestCount} guest(s) required for this listing.`)
+      }
       const slotId = intent.slotId || "fullday"
       const roomResourceId =
         String(listing?.roomId || "").trim() &&
@@ -139,10 +144,12 @@ export async function POST(request: Request) {
         listingTitle: listing?.title || "Listing",
         branchName: branchSnap.data()?.name || "",
         checkInDate: Timestamp.fromDate(new Date(intent.checkInDate)),
-        checkOutDate: null,
+        checkOutDate: intent.checkOutDate
+          ? Timestamp.fromDate(new Date(intent.checkOutDate))
+          : null,
         slotId: intent.slotId || null,
         slotName: intent.slotName || null,
-        guestCount: Math.max(1, Number(intent.guestCount || 1)),
+        guestCount,
         unitsBooked: unitsNeeded,
         selectedAddons: intent.selectedAddons || [],
         basePrice: Number(pricing.basePrice || 0),
