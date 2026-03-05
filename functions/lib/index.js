@@ -318,30 +318,43 @@ async function allocateResourcesInTransaction(transaction, params) {
     const unitsSnap = await transaction.get(unitsQuery);
     if (!unitsSnap.empty) {
         const selectedUnitIds = [];
-        for (const unitDoc of unitsSnap.docs) {
-            if (selectedUnitIds.length >= unitsBooked)
-                break;
+        const unitCandidates = unitsSnap.docs.map((unitDoc) => {
             const reservationId = `${unitDoc.id}_${dateKey}`;
             const reservationRef = db.collection("reservations").doc(reservationId);
-            const reservationSnap = await transaction.get(reservationRef);
+            return { unitDoc, reservationId, reservationRef };
+        });
+        const reservationSnaps = await Promise.all(unitCandidates.map(({ reservationRef }) => transaction.get(reservationRef)));
+        const selectedReservations = [];
+        for (let index = 0; index < unitCandidates.length; index += 1) {
+            if (selectedReservations.length >= unitsBooked)
+                break;
+            const candidate = unitCandidates[index];
+            const reservationSnap = reservationSnaps[index];
             if (!reservationSnap.exists) {
-                selectedUnitIds.push(unitDoc.id);
-                const unitLabel = String(unitDoc.data().label || unitDoc.id);
-                labels.push(unitLabel);
-                reservationDocIds.push(reservationId);
-                transaction.set(reservationRef, {
-                    listingId: listingRef.id,
-                    bookingId: bookingRef.id,
-                    userId,
-                    dateKey,
-                    unitId: unitDoc.id,
-                    status: "BOOKED",
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                selectedReservations.push({
+                    unitId: candidate.unitDoc.id,
+                    unitLabel: String(candidate.unitDoc.data().label || candidate.unitDoc.id),
+                    reservationId: candidate.reservationId,
+                    reservationRef: candidate.reservationRef,
                 });
             }
         }
-        if (selectedUnitIds.length < unitsBooked) {
+        if (selectedReservations.length < unitsBooked) {
             throw new https_1.HttpsError("failed-precondition", "Not enough free units for selected date.");
+        }
+        for (const selected of selectedReservations) {
+            selectedUnitIds.push(selected.unitId);
+            labels.push(selected.unitLabel);
+            reservationDocIds.push(selected.reservationId);
+            transaction.set(selected.reservationRef, {
+                listingId: listingRef.id,
+                bookingId: bookingRef.id,
+                userId,
+                dateKey,
+                unitId: selected.unitId,
+                status: "BOOKED",
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
         }
         return {
             allocationType: "units",
