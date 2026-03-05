@@ -32,7 +32,7 @@ import {
   Volume2,
   Check,
 } from "lucide-react"
-import { format, addDays, isBefore, startOfDay } from "date-fns"
+import { format, addDays, isBefore, startOfDay, startOfMonth, endOfMonth } from "date-fns"
 import { toast } from "sonner"
 import Link from "next/link"
 
@@ -47,6 +47,7 @@ export default function ListingDetailPage() {
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
   const [locks, setLocks] = useState<AvailabilityLock[]>([])
   const [loading, setLoading] = useState(true)
+  const [calendarMonth, setCalendarMonth] = useState<Date>(startOfMonth(addDays(new Date(), 1)))
 
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     addDays(new Date(), 1)
@@ -87,15 +88,30 @@ export default function ListingDetailPage() {
   }, [id, router])
 
   const loadAvailability = useCallback(async () => {
-    if (!listing || !selectedDate) return
-    const dateStr = format(selectedDate, "yyyy-MM-dd")
+    if (!listing) return
+    const monthStart = startOfMonth(calendarMonth)
+    const monthEnd = endOfMonth(calendarMonth)
+    const dates: string[] = []
+    for (
+      let date = monthStart;
+      date <= monthEnd;
+      date = addDays(date, 1)
+    ) {
+      dates.push(format(date, "yyyy-MM-dd"))
+    }
     try {
-      const lockData = await getAvailabilityLocks(listing.id, [dateStr])
-      setLocks(lockData)
+      const chunks: string[][] = []
+      for (let index = 0; index < dates.length; index += 30) {
+        chunks.push(dates.slice(index, index + 30))
+      }
+      const responses = await Promise.all(
+        chunks.map((chunk) => getAvailabilityLocks(listing.id, chunk))
+      )
+      setLocks(responses.flat())
     } catch {
       // Handle silently
     }
-  }, [listing, selectedDate])
+  }, [listing, calendarMonth])
 
   useEffect(() => {
     loadAvailability()
@@ -109,6 +125,30 @@ export default function ListingDetailPage() {
     if (lock?.isBlocked) return 0
     const booked = lock?.bookedUnits || 0
     return Math.max(0, (listing.inventory || 1) - booked)
+  }
+
+  function isDateSoldOut(date: Date): boolean {
+    if (!listing) return false
+    const dateStr = format(date, "yyyy-MM-dd")
+    const dayLocks = locks.filter((lock) => lock.date === dateStr)
+    if (!dayLocks.length) return false
+
+    if (listing.slotsEnabled && listing.slots && listing.slots.length > 0) {
+      const inventory = listing.inventory || 1
+      const hasOpenSlot = listing.slots.some((slot) => {
+        const lock = dayLocks.find((entry) => entry.slotId === slot.slotId)
+        if (!lock) return true
+        if (lock.isBlocked) return false
+        return Number(lock.bookedUnits || 0) < inventory
+      })
+      return !hasOpenSlot
+    }
+
+    const defaultLock =
+      dayLocks.find((lock) => lock.slotId === "default") || dayLocks[0]
+    if (!defaultLock) return false
+    if (defaultLock.isBlocked) return true
+    return Number(defaultLock.bookedUnits || 0) >= (listing.inventory || 1)
   }
 
   function calculatePrice(): {
@@ -455,8 +495,12 @@ export default function ListingDetailPage() {
                       mode="single"
                       selected={selectedDate}
                       onSelect={setSelectedDate}
+                      month={calendarMonth}
+                      onMonthChange={setCalendarMonth}
                       disabled={(date) =>
-                        isBefore(date, today) || isBefore(maxDate, date)
+                        isBefore(date, today) ||
+                        isBefore(maxDate, date) ||
+                        isDateSoldOut(date)
                       }
                       className="rounded-md border"
                     />
