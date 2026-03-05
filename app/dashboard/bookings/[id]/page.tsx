@@ -1,7 +1,7 @@
 "use client"
 
 import { useAuth } from "@/lib/hooks/use-auth"
-import { getBooking, getInvoice, updateBooking } from "@/lib/firebase-db"
+import { getBooking, getInvoice } from "@/lib/firebase-db"
 import type { Booking, Invoice } from "@/lib/types"
 import {
   BOOKING_STATUS_LABELS,
@@ -76,19 +76,27 @@ export default function BookingDetailPage() {
   }, [params.id, user])
 
   const handleCancel = async () => {
-    if (!booking) return
+    if (!booking || !user) return
     setCancelling(true)
     try {
-      await updateBooking(booking.id, {
-        status: "cancelled",
-        paymentStatus: booking.advancePaid > 0 ? "refund_requested" : "pending",
-        refundStatus: booking.advancePaid > 0 ? "requested" : "none",
+      const token = await user.getIdToken()
+      const response = await fetch(`/api/bookings/${booking.id}/cancel`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       })
+      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to cancel booking")
+      }
       toast({
         title: "Booking Cancelled",
         description: "Your booking has been cancelled. Refund will be processed if applicable.",
       })
-      router.push("/dashboard")
+      const updated = await getBooking(booking.id)
+      if (updated) setBooking(updated)
+      router.refresh()
     } catch {
       toast({
         title: "Error",
@@ -145,6 +153,12 @@ export default function BookingDetailPage() {
   const autoCheckoutAt = booking.scheduledCheckOutAt?.toDate
     ? booking.scheduledCheckOutAt.toDate().toLocaleString("en-IN")
     : null
+  const scheduledCheckInAt = booking.scheduledCheckInAt?.toDate
+    ? booking.scheduledCheckInAt.toDate()
+    : null
+  const canCheckoutNow =
+    canCheckout &&
+    (!scheduledCheckInAt || scheduledCheckInAt.getTime() <= Date.now())
 
   const handleUserCheckout = async () => {
     setCheckingOut(true)
@@ -156,10 +170,16 @@ export default function BookingDetailPage() {
         title: "Checked out",
         description: "Checkout completed successfully.",
       })
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ""
+      const isWindowError =
+        message.toLowerCase().includes("before check-in window") ||
+        message.toLowerCase().includes("failed-precondition")
       toast({
-        title: "Error",
-        description: "Checkout is not allowed right now.",
+        title: isWindowError ? "Checkout not available yet" : "Error",
+        description: isWindowError
+          ? "Checkout can be done after the scheduled check-in window starts."
+          : "Checkout is not allowed right now.",
         variant: "destructive",
       })
     } finally {
@@ -423,18 +443,26 @@ export default function BookingDetailPage() {
             </AlertDialog>
           )}
           {canCheckout && (
-            <Button
-              onClick={handleUserCheckout}
-              disabled={checkingOut}
-              className="w-full"
-            >
-              {checkingOut ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle className="mr-2 h-4 w-4" />
+            <>
+              <Button
+                onClick={handleUserCheckout}
+                disabled={checkingOut || !canCheckoutNow}
+                className="w-full"
+              >
+                {checkingOut ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                )}
+                Check Out
+              </Button>
+              {!canCheckoutNow && scheduledCheckInAt && (
+                <p className="text-xs text-muted-foreground">
+                  Checkout will be available after{" "}
+                  {scheduledCheckInAt.toLocaleString("en-IN")}.
+                </p>
               )}
-              Check Out
-            </Button>
+            </>
           )}
         </div>
       </div>

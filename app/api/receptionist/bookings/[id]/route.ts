@@ -5,6 +5,7 @@ import { requirePermission, toHttpError } from "@/lib/server/permission-check"
 import { updateBookingSchema } from "@/lib/server/receptionist-schemas"
 import { getRequestMeta, sanitizeText } from "@/lib/server/request-meta"
 import { sendBookingEmail } from "@/lib/server/booking-email"
+import { markReservationsCancelled, releaseBookingAvailability } from "@/lib/server/booking-cancellation"
 
 function actionToPermission(action: string) {
   if (action === "cancel") return "cancel_booking" as const
@@ -44,6 +45,9 @@ export async function PATCH(
       updates.status = "cancelled"
       updates.cancellationReason = sanitizeText(body.cancellationReason || "", 500)
       updates.cancelledAt = Timestamp.now()
+      updates.paymentStatus =
+        Number(current.advancePaid || 0) > 0 ? "refund_requested" : String(current.paymentStatus || "pending")
+      updates.refundStatus = Number(current.advancePaid || 0) > 0 ? "requested" : String(current.refundStatus || "none")
     } else if (action === "check_in") {
       if (currentStatus !== "confirmed") {
         return NextResponse.json(
@@ -90,6 +94,10 @@ export async function PATCH(
     }
 
     await ref.set(updates, { merge: true })
+    if (action === "cancel") {
+      await releaseBookingAvailability(id, Number(current.unitsBooked || 1))
+      await markReservationsCancelled(id)
+    }
     const emailPayload = { ...current, ...updates }
     try {
       if (action === "cancel") {

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const permissionMock = vi.fn()
 const toHttpErrorMock = vi.fn()
 const sendBookingEmailMock = vi.fn()
+const releaseBookingAvailabilityMock = vi.fn()
+const markReservationsCancelledMock = vi.fn()
 
 vi.mock("@/lib/server/permission-check", () => ({
   requirePermission: permissionMock,
@@ -11,6 +13,11 @@ vi.mock("@/lib/server/permission-check", () => ({
 
 vi.mock("@/lib/server/booking-email", () => ({
   sendBookingEmail: sendBookingEmailMock,
+}))
+
+vi.mock("@/lib/server/booking-cancellation", () => ({
+  releaseBookingAvailability: releaseBookingAvailabilityMock,
+  markReservationsCancelled: markReservationsCancelledMock,
 }))
 
 const auditAddMock = vi.fn()
@@ -71,6 +78,8 @@ describe("receptionist bookings API", () => {
     expect(res.status).toBe(200)
     expect(bookingSetMock).toHaveBeenCalled()
     expect(auditAddMock).toHaveBeenCalled()
+    expect(releaseBookingAvailabilityMock).toHaveBeenCalledWith("abc", 1)
+    expect(markReservationsCancelledMock).toHaveBeenCalledWith("abc")
     expect(sendBookingEmailMock).toHaveBeenCalledWith("BOOKING_CANCELLED", "abc", expect.any(Object))
   })
 
