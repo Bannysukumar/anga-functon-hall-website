@@ -287,7 +287,9 @@ async function allocateResourcesInTransaction(transaction, params) {
         const slotKey = slotId || "full_day";
         const reservationId = `${listingRef.id}_${dateKey}_${slotKey}`;
         const reservationRef = db.collection("reservations").doc(reservationId);
+        const lockRef = db.collection("availabilityLocks").doc(reservationId);
         const reservationSnap = await transaction.get(reservationRef);
+        const lockSnap = await transaction.get(lockRef);
         const allocated = Number(reservationSnap.data()?.quantity || 0);
         const capacity = Number(listing.inventory || 1);
         if (allocated + unitsBooked > capacity) {
@@ -302,6 +304,16 @@ async function allocateResourcesInTransaction(transaction, params) {
             quantity: allocated + unitsBooked,
             status: "BOOKED",
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        transaction.set(lockRef, {
+            listingId: listingRef.id,
+            date: dateKey,
+            slotId: slotKey,
+            bookedUnits: allocated + unitsBooked,
+            maxUnits: capacity,
+            isBlocked: Boolean(lockSnap.data()?.isBlocked || false),
+            bookingIds: [bookingRef.id],
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
         labels.push(slotId ? `Slot ${slotId}` : "Full Day Slot");
         reservationDocIds.push(reservationId);
@@ -318,12 +330,15 @@ async function allocateResourcesInTransaction(transaction, params) {
     const unitsSnap = await transaction.get(unitsQuery);
     if (!unitsSnap.empty) {
         const selectedUnitIds = [];
+        const defaultLockId = `${listingRef.id}_${dateKey}_default`;
+        const defaultLockRef = db.collection("availabilityLocks").doc(defaultLockId);
         const unitCandidates = unitsSnap.docs.map((unitDoc) => {
             const reservationId = `${unitDoc.id}_${dateKey}`;
             const reservationRef = db.collection("reservations").doc(reservationId);
             return { unitDoc, reservationId, reservationRef };
         });
         const reservationSnaps = await Promise.all(unitCandidates.map(({ reservationRef }) => transaction.get(reservationRef)));
+        const defaultLockSnap = await transaction.get(defaultLockRef);
         const selectedReservations = [];
         for (let index = 0; index < unitCandidates.length; index += 1) {
             if (selectedReservations.length >= unitsBooked)
@@ -356,6 +371,18 @@ async function allocateResourcesInTransaction(transaction, params) {
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
         }
+        const currentBooked = Number(defaultLockSnap.data()?.bookedUnits || 0);
+        const capacity = Number(listing.inventory || unitsSnap.docs.length || unitsBooked);
+        transaction.set(defaultLockRef, {
+            listingId: listingRef.id,
+            date: dateKey,
+            slotId: "default",
+            bookedUnits: currentBooked + selectedReservations.length,
+            maxUnits: capacity,
+            isBlocked: Boolean(defaultLockSnap.data()?.isBlocked || false),
+            bookingIds: [bookingRef.id],
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
         return {
             allocationType: "units",
             unitIds: selectedUnitIds,
@@ -368,7 +395,10 @@ async function allocateResourcesInTransaction(transaction, params) {
     }
     const inventoryReservationId = `${listingRef.id}_${dateKey}_inventory`;
     const inventoryRef = db.collection("reservations").doc(inventoryReservationId);
+    const defaultLockId = `${listingRef.id}_${dateKey}_default`;
+    const defaultLockRef = db.collection("availabilityLocks").doc(defaultLockId);
     const inventorySnap = await transaction.get(inventoryRef);
+    const defaultLockSnap = await transaction.get(defaultLockRef);
     const allocated = Number(inventorySnap.data()?.quantity || 0);
     const capacity = Number(listing.inventory || 1);
     if (allocated + unitsBooked > capacity) {
@@ -382,6 +412,16 @@ async function allocateResourcesInTransaction(transaction, params) {
         quantity: allocated + unitsBooked,
         status: "BOOKED",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    transaction.set(defaultLockRef, {
+        listingId: listingRef.id,
+        date: dateKey,
+        slotId: "default",
+        bookedUnits: allocated + unitsBooked,
+        maxUnits: capacity,
+        isBlocked: Boolean(defaultLockSnap.data()?.isBlocked || false),
+        bookingIds: [bookingRef.id],
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     labels.push(`Units: ${unitsBooked}`);
     reservationDocIds.push(inventoryReservationId);
