@@ -182,6 +182,7 @@ export async function POST(request: Request) {
         currency: "INR",
         status: "captured",
         gateway: "razorpay",
+        method: "razorpay",
         razorpayOrderId,
         razorpayPaymentId,
         createdAt: now,
