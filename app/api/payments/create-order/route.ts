@@ -19,17 +19,25 @@ export async function POST(request: Request) {
       adminDb.collection("settings").doc("global").get(),
       adminDb.collection("secureSettings").doc("razorpay").get(),
     ])
-    const razorpayKeyId =
-      String(settingsSnap.data()?.razorpayKeyId || "") ||
-      process.env.RAZORPAY_KEY_ID ||
-      process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
-    const razorpayKeySecret =
-      String(secureSnap.data()?.razorpaySecretKey || "") ||
-      process.env.RAZORPAY_KEY_SECRET
+    const razorpayKeyId = String(
+      settingsSnap.data()?.razorpayKeyId ||
+        secureSnap.data()?.razorpayKeyId ||
+        process.env.RAZORPAY_KEY_ID ||
+        process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
+        ""
+    ).trim()
+    const razorpayKeySecret = String(
+      secureSnap.data()?.razorpaySecretKey || process.env.RAZORPAY_KEY_SECRET || ""
+    ).trim()
 
     if (!razorpayKeyId || !razorpayKeySecret) {
+      const missing: string[] = []
+      if (!razorpayKeyId) missing.push("Razorpay Key ID")
+      if (!razorpayKeySecret) missing.push("Razorpay Secret Key")
       return NextResponse.json(
-        { error: "Razorpay server keys are not configured." },
+        {
+          error: `Razorpay configuration missing: ${missing.join(", ")}. Update it in Admin > Settings.`,
+        },
         { status: 500 }
       )
     }
