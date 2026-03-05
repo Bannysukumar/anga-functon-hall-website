@@ -1493,9 +1493,44 @@ export const getInvoiceDownloadUrl = onCall(async (request) => {
   if (!pdfPath) {
     throw new HttpsError("failed-precondition", "Invoice PDF is not ready.")
   }
-  const [url] = await admin.storage().bucket().file(pdfPath).getSignedUrl({
-    action: "read",
-    expires: Date.now() + 15 * 60 * 1000,
-  })
-  return { ok: true, url }
+  const bucket = admin.storage().bucket()
+  const file = bucket.file(pdfPath)
+  const [exists] = await file.exists()
+  if (!exists) {
+    throw new HttpsError("not-found", "Invoice PDF file is missing.")
+  }
+
+  try {
+    const [url] = await file.getSignedUrl({
+      action: "read",
+      expires: Date.now() + 15 * 60 * 1000,
+    })
+    return { ok: true, url }
+  } catch (error) {
+    logger.error("Signed URL generation failed, using token URL fallback.", {
+      invoiceId,
+      pdfPath,
+      error,
+    })
+
+    const [metadata] = await file.getMetadata()
+    let token = String(metadata.metadata?.firebaseStorageDownloadTokens || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)[0]
+
+    if (!token) {
+      token = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      await file.setMetadata({
+        metadata: {
+          ...(metadata.metadata || {}),
+          firebaseStorageDownloadTokens: token,
+        },
+      })
+    }
+
+    const encodedPath = encodeURIComponent(pdfPath)
+    const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${token}`
+    return { ok: true, url, source: "token_fallback" }
+  }
 })
