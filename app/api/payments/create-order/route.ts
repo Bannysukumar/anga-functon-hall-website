@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import Razorpay from "razorpay"
+import { adminDb } from "@/lib/server/firebase-admin"
 
 export async function POST(request: Request) {
   try {
@@ -14,9 +15,17 @@ export async function POST(request: Request) {
       )
     }
 
+    const [settingsSnap, secureSnap] = await Promise.all([
+      adminDb.collection("settings").doc("global").get(),
+      adminDb.collection("secureSettings").doc("razorpay").get(),
+    ])
     const razorpayKeyId =
-      process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
-    const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET
+      String(settingsSnap.data()?.razorpayKeyId || "") ||
+      process.env.RAZORPAY_KEY_ID ||
+      process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+    const razorpayKeySecret =
+      String(secureSnap.data()?.razorpaySecretKey || "") ||
+      process.env.RAZORPAY_KEY_SECRET
 
     if (!razorpayKeyId || !razorpayKeySecret) {
       return NextResponse.json(
@@ -43,9 +52,11 @@ export async function POST(request: Request) {
       currency: order.currency,
       keyId: razorpayKeyId,
     })
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to create Razorpay order."
     return NextResponse.json(
-      { error: "Failed to create Razorpay order." },
+      { error: message },
       { status: 500 }
     )
   }

@@ -15,6 +15,23 @@ function readBearerToken(request: Request): string {
   return authHeader.slice("Bearer ".length).trim()
 }
 
+async function resolveBranchId(inputBranchId?: string, listingBranchId?: string) {
+  const direct = String(inputBranchId || listingBranchId || "").trim()
+  if (direct) return direct
+
+  const activeBranchQuery = await adminDb
+    .collection("branches")
+    .where("isActive", "==", true)
+    .limit(1)
+    .get()
+  if (!activeBranchQuery.empty) return activeBranchQuery.docs[0].id
+
+  const anyBranchQuery = await adminDb.collection("branches").limit(1).get()
+  if (!anyBranchQuery.empty) return anyBranchQuery.docs[0].id
+
+  return ""
+}
+
 export async function POST(request: Request) {
   try {
     const idToken = readBearerToken(request)
@@ -26,17 +43,18 @@ export async function POST(request: Request) {
     const uid = decoded.uid
     const body = (await request.json()) as BookingIntentInput
 
-    if (!body?.listingId || !body?.branchId || !body?.checkInDate) {
+    if (!body?.listingId || !body?.checkInDate) {
       return NextResponse.json(
         { error: "Missing required booking details." },
         { status: 400 }
       )
     }
 
-    const [userSnap, listingSnap, settingsSnap] = await Promise.all([
+    const [userSnap, listingSnap, settingsSnap, secureRazorpaySnap] = await Promise.all([
       adminDb.collection("users").doc(uid).get(),
       adminDb.collection("listings").doc(body.listingId).get(),
       adminDb.collection("settings").doc("global").get(),
+      adminDb.collection("secureSettings").doc("razorpay").get(),
     ])
 
     if (!userSnap.exists) {
@@ -59,10 +77,27 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-    if (listing.branchId !== body.branchId) {
+    const branchIdToUse = await resolveBranchId(body.branchId, listing.branchId)
+    if (!branchIdToUse) {
+      return NextResponse.json(
+        { error: "No branch is configured. Please create at least one branch in admin." },
+        { status: 400 }
+      )
+    }
+    if (body.branchId && listing.branchId && listing.branchId !== body.branchId) {
       return NextResponse.json(
         { error: "Listing-branch mismatch in request." },
         { status: 400 }
+      )
+    }
+    if (!listing.branchId && branchIdToUse) {
+      // Self-heal legacy listings created before branch mapping was mandatory.
+      await listingSnap.ref.set(
+        {
+          branchId: branchIdToUse,
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true }
       )
     }
 
@@ -138,9 +173,15 @@ export async function POST(request: Request) {
       )
     }
 
+    const secureRazorpay = secureRazorpaySnap.exists
+      ? (secureRazorpaySnap.data() as { razorpaySecretKey?: string })
+      : {}
     const razorpayKeyId =
-      process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
-    const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET
+      settings.razorpayKeyId ||
+      process.env.RAZORPAY_KEY_ID ||
+      process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+    const razorpayKeySecret =
+      secureRazorpay.razorpaySecretKey || process.env.RAZORPAY_KEY_SECRET
     if (!razorpayKeyId || !razorpayKeySecret) {
       return NextResponse.json(
         { error: "Razorpay keys are not configured." },
@@ -168,7 +209,7 @@ export async function POST(request: Request) {
     await intentRef.set({
       userId: uid,
       listingId: body.listingId,
-      branchId: body.branchId,
+      branchId: branchIdToUse,
       checkInDate: body.checkInDate,
       slotId: body.slotId || null,
       slotName: body.slotName || null,
@@ -195,9 +236,11 @@ export async function POST(request: Request) {
       displayName: settings.razorpayDisplayName || "Anga Function Hall",
       expiresAt: expiresAt.toDate().toISOString(),
     })
-  } catch {
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to create booking intent."
     return NextResponse.json(
-      { error: "Failed to create booking intent." },
+      { error: message },
       { status: 500 }
     )
   }

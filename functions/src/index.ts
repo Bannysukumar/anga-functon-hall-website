@@ -23,16 +23,19 @@ type RuntimeSecureConfig = {
   smtpFromEmail: string
   adminNotificationEmail: string
   appBaseUrl: string
+  razorpayKeyId: string
   razorpaySecretKey: string
 }
 
 async function getRuntimeSecureConfig(): Promise<RuntimeSecureConfig> {
-  const [smtpSnap, razorpaySnap] = await Promise.all([
+  const [smtpSnap, razorpaySnap, settingsSnap] = await Promise.all([
     db.collection("secureSettings").doc("smtp").get(),
     db.collection("secureSettings").doc("razorpay").get(),
+    db.collection("settings").doc("global").get(),
   ])
   const smtpData = (smtpSnap.data() || {}) as Record<string, any>
   const razorpayData = (razorpaySnap.data() || {}) as Record<string, any>
+  const settingsData = (settingsSnap.data() || {}) as Record<string, any>
   return {
     smtpHost: String(smtpData.smtpHost || process.env.SMTP_HOST || ""),
     smtpPort: Number(smtpData.smtpPort || process.env.SMTP_PORT || 587),
@@ -47,6 +50,9 @@ async function getRuntimeSecureConfig(): Promise<RuntimeSecureConfig> {
       smtpData.adminNotificationEmail || process.env.ADMIN_NOTIFICATION_EMAIL || ""
     ),
     appBaseUrl: String(smtpData.appBaseUrl || process.env.APP_BASE_URL || ""),
+    razorpayKeyId: String(
+      settingsData.razorpayKeyId || process.env.RAZORPAY_KEY_ID || ""
+    ),
     razorpaySecretKey: String(
       razorpayData.razorpaySecretKey || process.env.RAZORPAY_KEY_SECRET || ""
     ),
@@ -857,8 +863,8 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
   }
 
   const razorpaySecret = runtimeConfig.razorpaySecretKey
-  if (!razorpaySecret) {
-    throw new HttpsError("failed-precondition", "Razorpay secret key not configured.")
+  if (!runtimeConfig.razorpayKeyId || !razorpaySecret) {
+    throw new HttpsError("failed-precondition", "Razorpay keys are not configured.")
   }
   const rawPayload = `${payload.razorpayOrderId}|${payload.razorpayPaymentId}`
   const expected = createHmac("sha256", razorpaySecret).update(rawPayload).digest("hex")
@@ -872,7 +878,7 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
   }
 
   const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID || "",
+    key_id: runtimeConfig.razorpayKeyId || "",
     key_secret: razorpaySecret,
   })
   const order = await razorpay.orders.fetch(payload.razorpayOrderId)

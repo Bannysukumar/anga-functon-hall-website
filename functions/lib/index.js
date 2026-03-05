@@ -50,12 +50,14 @@ admin.initializeApp();
 const db = admin.firestore();
 const TIMEZONE = "Asia/Kolkata";
 async function getRuntimeSecureConfig() {
-    const [smtpSnap, razorpaySnap] = await Promise.all([
+    const [smtpSnap, razorpaySnap, settingsSnap] = await Promise.all([
         db.collection("secureSettings").doc("smtp").get(),
         db.collection("secureSettings").doc("razorpay").get(),
+        db.collection("settings").doc("global").get(),
     ]);
     const smtpData = (smtpSnap.data() || {});
     const razorpayData = (razorpaySnap.data() || {});
+    const settingsData = (settingsSnap.data() || {});
     return {
         smtpHost: String(smtpData.smtpHost || process.env.SMTP_HOST || ""),
         smtpPort: Number(smtpData.smtpPort || process.env.SMTP_PORT || 587),
@@ -67,6 +69,7 @@ async function getRuntimeSecureConfig() {
         smtpFromEmail: String(smtpData.smtpFromEmail || process.env.SMTP_FROM_EMAIL || ""),
         adminNotificationEmail: String(smtpData.adminNotificationEmail || process.env.ADMIN_NOTIFICATION_EMAIL || ""),
         appBaseUrl: String(smtpData.appBaseUrl || process.env.APP_BASE_URL || ""),
+        razorpayKeyId: String(settingsData.razorpayKeyId || process.env.RAZORPAY_KEY_ID || ""),
         razorpaySecretKey: String(razorpayData.razorpaySecretKey || process.env.RAZORPAY_KEY_SECRET || ""),
     };
 }
@@ -700,8 +703,8 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
         }
     }
     const razorpaySecret = runtimeConfig.razorpaySecretKey;
-    if (!razorpaySecret) {
-        throw new https_1.HttpsError("failed-precondition", "Razorpay secret key not configured.");
+    if (!runtimeConfig.razorpayKeyId || !razorpaySecret) {
+        throw new https_1.HttpsError("failed-precondition", "Razorpay keys are not configured.");
     }
     const rawPayload = `${payload.razorpayOrderId}|${payload.razorpayPaymentId}`;
     const expected = (0, node_crypto_1.createHmac)("sha256", razorpaySecret).update(rawPayload).digest("hex");
@@ -713,7 +716,7 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
         throw new https_1.HttpsError("permission-denied", "Razorpay signature verification failed.");
     }
     const razorpay = new razorpay_1.default({
-        key_id: process.env.RAZORPAY_KEY_ID || "",
+        key_id: runtimeConfig.razorpayKeyId || "",
         key_secret: razorpaySecret,
     });
     const order = await razorpay.orders.fetch(payload.razorpayOrderId);

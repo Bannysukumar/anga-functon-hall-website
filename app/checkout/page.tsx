@@ -182,6 +182,12 @@ export default function CheckoutPage() {
       return
     }
 
+    const branchIdForIntent = checkout.branchId || listing.branchId || ""
+    if (!checkout.listingId || !checkout.checkInDate) {
+      toast.error("Booking details are incomplete. Please select listing/date again.")
+      return
+    }
+
     setProcessing(true)
     try {
       const scriptLoaded = await loadRazorpayScript()
@@ -200,7 +206,7 @@ export default function CheckoutPage() {
         },
         body: JSON.stringify({
           listingId: checkout.listingId,
-          branchId: checkout.branchId,
+          branchId: branchIdForIntent,
           checkInDate: checkout.checkInDate,
           slotId: checkout.slotId,
           slotName: checkout.slotName,
