@@ -1,13 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Header } from "@/components/layout/header"
 import { Footer } from "@/components/layout/footer"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Spinner } from "@/components/ui/spinner"
 import { CheckCircle2, FileText, Home } from "lucide-react"
+import { getBooking } from "@/lib/firebase-db"
 
 interface ConfirmationData {
   bookingId: string
@@ -23,17 +25,57 @@ interface ConfirmationData {
 
 export default function CheckoutSuccessPage() {
   const [data, setData] = useState<ConfirmationData | null>(null)
+  const [loading, setLoading] = useState(true)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const bookingIdFromQuery = searchParams.get("bookingId")?.trim()
 
   useEffect(() => {
-    const stored = sessionStorage.getItem("bookingConfirmation")
-    if (!stored) {
+    async function load() {
+      const stored = sessionStorage.getItem("bookingConfirmation")
+      if (stored) {
+        setData(JSON.parse(stored))
+        setLoading(false)
+        return
+      }
+      if (bookingIdFromQuery) {
+        try {
+          const booking = await getBooking(bookingIdFromQuery)
+          if (booking) {
+            setData({
+              bookingId: booking.id,
+              invoiceId: booking.invoiceId,
+              invoiceNumber: booking.invoiceNumber || "",
+              listingTitle: booking.listingTitle || "Booking",
+              totalAmount: booking.totalAmount || 0,
+              advancePaid: booking.advancePaid || 0,
+            })
+          } else {
+            router.push("/")
+          }
+        } catch {
+          router.push("/")
+        } finally {
+          setLoading(false)
+        }
+        return
+      }
       router.push("/")
-      return
+      setLoading(false)
     }
-    setData(JSON.parse(stored))
-  }, [router])
+    load()
+  }, [router, bookingIdFromQuery])
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <Header />
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner className="h-8 w-8" />
+        </div>
+      </div>
+    )
+  }
   if (!data) return null
 
   return (

@@ -455,6 +455,7 @@ export async function getSecureSettings(): Promise<SecureSettings> {
 
   return {
     razorpaySecretKey: razorpayData.razorpaySecretKey || "",
+    razorpayWebhookSecret: (razorpayData as { razorpayWebhookSecret?: string }).razorpayWebhookSecret || "",
     smtpHost: smtpData.smtpHost || "",
     smtpPort: Number(smtpData.smtpPort || 587),
     smtpSecure: Boolean(smtpData.smtpSecure || false),
@@ -468,10 +469,13 @@ export async function getSecureSettings(): Promise<SecureSettings> {
 }
 
 export async function updateSecureSettings(data: Partial<SecureSettings>) {
-  const { razorpaySecretKey, ...smtpFields } = data
-  if (typeof razorpaySecretKey === "string") {
+  const { razorpaySecretKey, razorpayWebhookSecret, ...smtpFields } = data
+  const razorpayPayload: Record<string, unknown> = {}
+  if (typeof razorpaySecretKey === "string") razorpayPayload.razorpaySecretKey = razorpaySecretKey
+  if (typeof razorpayWebhookSecret === "string") razorpayPayload.razorpayWebhookSecret = razorpayWebhookSecret
+  if (Object.keys(razorpayPayload).length > 0) {
     const razorpayRef = doc(db, "secureSettings", "razorpay")
-    await setDoc(razorpayRef, { razorpaySecretKey }, { merge: true })
+    await setDoc(razorpayRef, razorpayPayload, { merge: true })
   }
 
   const smtpPayload: Partial<SecureSettings> = {}

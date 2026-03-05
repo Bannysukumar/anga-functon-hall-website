@@ -69,7 +69,7 @@ export function AdminSidebar() {
           Site
         </Link>
       </div>
-      <nav className="flex flex-1 flex-col gap-1 p-3">
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3">
         {ADMIN_NAV.filter((item) => {
           if (isAdminUser) return true
           if (item.adminOnly) return false

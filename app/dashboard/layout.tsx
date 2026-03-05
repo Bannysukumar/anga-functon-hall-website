@@ -147,8 +147,8 @@ export default function DashboardLayout({
 
   return (
     <div className="container mx-auto flex min-h-[calc(100vh-10rem)] gap-8 px-4 py-8">
-      <aside className="hidden w-56 shrink-0 md:block">
-        <nav className="sticky top-24 flex flex-col gap-1">
+      <aside className="flex hidden max-h-[calc(100vh-6rem)] w-56 shrink-0 flex-col md:block">
+        <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {[
             ...sidebarLinks,
             ...(canAccessAdminPanel

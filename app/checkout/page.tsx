@@ -80,13 +80,19 @@ export default function CheckoutPage() {
   const [couponDiscount, setCouponDiscount] = useState(0)
   const [couponId, setCouponId] = useState<string | null>(null)
   const [applyingCoupon, setApplyingCoupon] = useState(false)
+  const [paymentStatusCheck, setPaymentStatusCheck] = useState<"idle" | "polling" | "paid" | "failed">("idle")
 
   useEffect(() => {
     async function load() {
       const stored = sessionStorage.getItem("checkoutData")
-      if (!stored) {
+      const pendingOrderId = typeof window !== "undefined" ? sessionStorage.getItem("pendingPaymentOrderId") : null
+      if (!stored && !pendingOrderId) {
         toast.error("No booking data found. Please start again.")
         router.push("/explore")
+        return
+      }
+      if (!stored) {
+        setLoading(false)
         return
       }
 
@@ -112,6 +118,60 @@ export default function CheckoutPage() {
       }
     }
     load()
+  }, [router])
+
+  useEffect(() => {
+    const orderId = typeof window !== "undefined" ? sessionStorage.getItem("pendingPaymentOrderId") : null
+    if (!orderId) return
+    let cancelled = false
+    let attempts = 0
+    const maxAttempts = 30
+    const poll = async () => {
+      if (cancelled || attempts >= maxAttempts) return
+      setPaymentStatusCheck("polling")
+      try {
+        const res = await fetch(`/api/bookings/payment-status?orderId=${encodeURIComponent(orderId)}`)
+        const data = (await res.json()) as { paymentStatus?: string; status?: string; bookingId?: string; invoiceNumber?: string }
+        if (cancelled) return
+        if (data.paymentStatus === "paid" && data.bookingId) {
+          setPaymentStatusCheck("paid")
+          const pricingStr = typeof window !== "undefined" ? sessionStorage.getItem("pendingPaymentPricing") : null
+          const listingTitle = typeof window !== "undefined" ? sessionStorage.getItem("pendingPaymentListingTitle") : ""
+          const pricing = pricingStr ? JSON.parse(pricingStr) : {}
+          sessionStorage.removeItem("pendingPaymentOrderId")
+          sessionStorage.removeItem("pendingPaymentIntentId")
+          sessionStorage.removeItem("pendingPaymentPricing")
+          sessionStorage.removeItem("pendingPaymentListingTitle")
+          sessionStorage.setItem(
+            "bookingConfirmation",
+            JSON.stringify({
+              bookingId: data.bookingId,
+              invoiceNumber: data.invoiceNumber || "",
+              listingTitle: listingTitle || "Booking",
+              totalAmount: pricing.totalAmount || 0,
+              advancePaid: pricing.amountToPay || 0,
+            })
+          )
+          router.push("/checkout/success")
+          return
+        }
+        if (data.paymentStatus === "failed" || data.status === "payment_failed") {
+          setPaymentStatusCheck("failed")
+          sessionStorage.removeItem("pendingPaymentOrderId")
+          sessionStorage.removeItem("pendingPaymentIntentId")
+          return
+        }
+      } catch {
+        if (!cancelled) setPaymentStatusCheck("idle")
+      }
+      attempts += 1
+      if (!cancelled && attempts < maxAttempts) setTimeout(poll, 2000)
+      else if (!cancelled) setPaymentStatusCheck("idle")
+    }
+    poll()
+    return () => {
+      cancelled = true
+    }
   }, [router])
 
   async function handleApplyCoupon() {
@@ -240,6 +300,11 @@ export default function CheckoutPage() {
         return
       }
 
+      sessionStorage.setItem("pendingPaymentOrderId", intentResult.orderId)
+      sessionStorage.setItem("pendingPaymentIntentId", intentResult.intentId)
+      sessionStorage.setItem("pendingPaymentPricing", JSON.stringify(intentResult.pricing || {}))
+      sessionStorage.setItem("pendingPaymentListingTitle", listing.title)
+
       const options = {
         key: intentResult.keyId,
         amount: intentResult.amount,
@@ -272,6 +337,10 @@ export default function CheckoutPage() {
             }
 
             sessionStorage.removeItem("checkoutData")
+            sessionStorage.removeItem("pendingPaymentOrderId")
+            sessionStorage.removeItem("pendingPaymentIntentId")
+            sessionStorage.removeItem("pendingPaymentPricing")
+            sessionStorage.removeItem("pendingPaymentListingTitle")
             sessionStorage.setItem(
               "bookingConfirmation",
               JSON.stringify({
@@ -326,6 +395,47 @@ export default function CheckoutPage() {
         <div className="flex flex-1 items-center justify-center">
           <Spinner className="h-8 w-8" />
         </div>
+      </div>
+    )
+  }
+
+  if (paymentStatusCheck === "polling") {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <Header />
+        <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+          <Spinner className="h-10 w-10 text-primary" />
+          <p className="text-center text-muted-foreground">
+            Checking payment status...
+          </p>
+          <p className="text-center text-sm text-muted-foreground">
+            Please wait. If you completed payment, your booking will be confirmed shortly.
+          </p>
+        </main>
+      </div>
+    )
+  }
+
+  if (paymentStatusCheck === "failed") {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <Header />
+        <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+          <Card className="w-full max-w-md">
+            <CardContent className="pt-6">
+              <p className="text-center font-medium text-destructive">Payment Failed</p>
+              <p className="mt-2 text-center text-sm text-muted-foreground">
+                The payment could not be completed. You can try again below.
+              </p>
+              <Button
+                className="mt-4 w-full"
+                onClick={() => setPaymentStatusCheck("idle")}
+              >
+                Retry Payment
+              </Button>
+            </CardContent>
+          </Card>
+        </main>
       </div>
     )
   }

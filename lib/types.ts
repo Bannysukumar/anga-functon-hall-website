@@ -133,6 +133,8 @@ export interface Booking {
   paymentStatus: PaymentStatus
   razorpayOrderId: string
   razorpayPaymentId: string
+  /** When the payment was captured (set on confirm / webhook). */
+  paidAt?: Timestamp | null
   invoiceNumber: string
   invoiceId?: string
   allocatedResource?: {
@@ -315,6 +317,8 @@ export interface SiteSettings {
 
 export interface SecureSettings {
   razorpaySecretKey: string
+  /** Razorpay webhook secret for verifying payment.captured / payment.failed. */
+  razorpayWebhookSecret?: string
   smtpHost: string
   smtpPort: number
   smtpSecure: boolean

@@ -42,11 +42,11 @@ export function ReceptionistSidebar() {
   const visibleItems = NAV_ITEMS.filter((item) => isAdminUser || hasPermission(item.permission))
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r bg-sidebar lg:block">
-      <div className="border-b px-4 py-3">
+    <aside className="flex hidden h-full max-h-[calc(100vh-4rem)] w-64 shrink-0 flex-col border-r bg-sidebar lg:block">
+      <div className="shrink-0 border-b px-4 py-3">
         <p className="text-sm font-semibold text-sidebar-foreground">Receptionist Panel</p>
       </div>
-      <nav className="flex flex-col gap-1 p-3">
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3">
         {visibleItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
           return (

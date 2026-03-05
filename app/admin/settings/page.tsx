@@ -96,6 +96,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
   const [secureSettings, setSecureSettings] = useState<SecureSettings>({
     razorpaySecretKey: "",
+    razorpayWebhookSecret: "",
     smtpHost: "",
     smtpPort: 587,
     smtpSecure: false,
@@ -934,6 +935,25 @@ export default function SettingsPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Stored for admin reference only. Do not use in frontend code.
+                </p>
+              </div>
+            )}
+            {isAdminUser && (
+              <div className="flex flex-col gap-2">
+                <Label>Razorpay Webhook Secret</Label>
+                <Input
+                  type="password"
+                  value={secureSettings.razorpayWebhookSecret || ""}
+                  onChange={(e) =>
+                    setSecureSettings({
+                      ...secureSettings,
+                      razorpayWebhookSecret: e.target.value,
+                    })
+                  }
+                  placeholder="whsec_xxxxx"
+                />
+                <p className="text-xs text-muted-foreground">
+                  From Razorpay Dashboard → Settings → Webhooks. Used to verify payment.captured / payment.failed so booking status updates on mobile.
                 </p>
               </div>
             )}

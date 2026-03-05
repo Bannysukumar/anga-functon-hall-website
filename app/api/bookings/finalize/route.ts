@@ -47,9 +47,6 @@ export async function POST(request: Request) {
       if (intent.userId !== decoded.uid) {
         throw new Error("Intent does not belong to this user.")
       }
-      if (intent.status !== "verified") {
-        throw new Error("Payment is not verified for this intent.")
-      }
       if (intent.razorpayOrderId !== razorpayOrderId) {
         throw new Error("Razorpay order mismatch on finalize.")
       }
@@ -58,6 +55,21 @@ export async function POST(request: Request) {
       }
       if (intent.expiresAt?.toDate && new Date() > intent.expiresAt.toDate()) {
         throw new Error("Booking intent has expired.")
+      }
+      if (intent.status === "consumed" && intent.bookingId) {
+        const existingBooking = await transaction.get(adminDb.collection("bookings").doc(intent.bookingId))
+        if (existingBooking.exists) {
+          const b = existingBooking.data()
+          return {
+            bookingId: intent.bookingId,
+            invoiceNumber: b?.invoiceNumber || "",
+            totalAmount: Number(b?.totalAmount || 0),
+            advancePaid: Number(b?.advancePaid || 0),
+          }
+        }
+      }
+      if (intent.status !== "verified") {
+        throw new Error("Payment is not verified for this intent.")
       }
 
       const [userSnap, listingSnap, branchSnap] = await Promise.all([
@@ -163,9 +175,11 @@ export async function POST(request: Request) {
         dueAmount: Number(pricing.dueAmount || 0),
         remainingAmount: Number(pricing.dueAmount || 0),
         status: "confirmed",
-        paymentStatus: Number(pricing.dueAmount || 0) > 0 ? "partial" : "paid",
+        paymentStatus: Number(pricing.dueAmount || 0) > 0 ? "advance_paid" : "paid",
         razorpayOrderId,
         razorpayPaymentId,
+        paidAt: now,
+        paymentMethod: "online",
         whatsappStatus: "pending",
         whatsappSentAt: null,
         invoiceNumber,
