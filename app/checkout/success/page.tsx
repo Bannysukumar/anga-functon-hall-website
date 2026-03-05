@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Header } from "@/components/layout/header"
@@ -23,7 +23,7 @@ interface ConfirmationData {
   advancePaid: number
 }
 
-export default function CheckoutSuccessPage() {
+function CheckoutSuccessContent() {
   const [data, setData] = useState<ConfirmationData | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
@@ -175,5 +175,22 @@ export default function CheckoutSuccessPage() {
       </main>
       <Footer />
     </div>
+  )
+}
+
+export default function CheckoutSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen flex-col">
+          <Header />
+          <div className="flex flex-1 items-center justify-center">
+            <Spinner className="h-8 w-8" />
+          </div>
+        </div>
+      }
+    >
+      <CheckoutSuccessContent />
+    </Suspense>
   )
 }
