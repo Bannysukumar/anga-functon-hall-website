@@ -104,9 +104,8 @@ export default function ListingDetailPage() {
   function getAvailableUnits(slotId: string): number {
     if (!listing || !selectedDate) return 0
     const dateStr = format(selectedDate, "yyyy-MM-dd")
-    const lock = locks.find(
-      (l) => l.date === dateStr && l.slotId === slotId
-    )
+    const slotKey = listing.slotsEnabled ? slotId : "default"
+    const lock = locks.find((l) => l.date === dateStr && l.slotId === slotKey)
     if (lock?.isBlocked) return 0
     const booked = lock?.bookedUnits || 0
     return Math.max(0, (listing.inventory || 1) - booked)
@@ -160,7 +159,7 @@ export default function ListingDetailPage() {
       return
     }
 
-    const slotId = selectedSlot?.slotId || "fullday"
+    const slotId = selectedSlot?.slotId || "default"
     const available = getAvailableUnits(slotId)
     if (available < unitsBooked) {
       toast.error(`Only ${available} unit(s) available`)

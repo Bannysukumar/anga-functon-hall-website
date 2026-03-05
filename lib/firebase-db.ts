@@ -237,15 +237,60 @@ export async function getAvailabilityLocks(
   listingId: string,
   dates?: string[]
 ): Promise<AvailabilityLock[]> {
-  const constraints: QueryConstraint[] = [
-    where("listingId", "==", listingId),
-  ]
+  const constraints: QueryConstraint[] = [where("listingId", "==", listingId)]
   if (dates && dates.length > 0 && dates.length <= 30) {
     constraints.push(where("date", "in", dates))
   }
-  const q = query(collection(db, "availabilityLocks"), ...constraints)
-  const snap = await getDocs(q)
-  return snap.docs.map((d) => docToType<AvailabilityLock>(d))
+  const [lockSnap, reservationSnap] = await Promise.all([
+    getDocs(query(collection(db, "availabilityLocks"), ...constraints)),
+    getDocs(query(collection(db, "reservations"), where("listingId", "==", listingId))),
+  ])
+
+  const locks = lockSnap.docs.map((d) => docToType<AvailabilityLock>(d))
+  const byKey = new Map<string, AvailabilityLock>()
+  for (const lock of locks) {
+    byKey.set(`${lock.date}__${lock.slotId}`, lock)
+  }
+
+  const dateSet = dates && dates.length > 0 ? new Set(dates) : null
+  const reservationTotals = new Map<string, number>()
+  for (const docSnap of reservationSnap.docs) {
+    const reservation = docSnap.data() || {}
+    const dateKey = String(reservation.dateKey || "")
+    if (!dateKey) continue
+    if (dateSet && !dateSet.has(dateKey)) continue
+
+    const status = String(reservation.status || "").toUpperCase()
+    if (status === "CANCELLED") continue
+
+    const slotKey = String(reservation.slotId || "default")
+    const units = Math.max(1, Number(reservation.quantity || 1))
+    const key = `${dateKey}__${slotKey}`
+    reservationTotals.set(key, (reservationTotals.get(key) || 0) + units)
+  }
+
+  for (const [key, bookedUnits] of reservationTotals.entries()) {
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.bookedUnits = Math.max(Number(existing.bookedUnits || 0), bookedUnits)
+      continue
+    }
+
+    const [date, slotId] = key.split("__")
+    byKey.set(key, {
+      id: `derived_${listingId}_${date}_${slotId}`,
+      listingId,
+      date,
+      slotId,
+      bookedUnits,
+      maxUnits: bookedUnits,
+      bookingIds: [],
+      isBlocked: false,
+      updatedAt: Timestamp.now(),
+    })
+  }
+
+  return Array.from(byKey.values())
 }
 
 export async function setAvailabilityBlock(

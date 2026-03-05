@@ -78,19 +78,30 @@ export default function AdminAvailabilityPage() {
     [listings, selectedListingId]
   )
 
+  async function loadMonthLocks(listingId: string, targetYear: number, targetMonth: number) {
+    const days = getDaysInMonth(targetYear, targetMonth)
+    const dates: string[] = []
+    for (let d = 1; d <= days; d++) {
+      dates.push(formatDateStr(targetYear, targetMonth, d))
+    }
+
+    const chunks: string[][] = []
+    for (let i = 0; i < dates.length; i += 30) {
+      chunks.push(dates.slice(i, i + 30))
+    }
+
+    const chunksData = await Promise.all(
+      chunks.map((chunk) => getAvailabilityLocks(listingId, chunk))
+    )
+    return chunksData.flat()
+  }
+
   useEffect(() => {
     if (!selectedListingId) return
     const loadLocks = async () => {
       setLoadingLocks(true)
       try {
-        const daysInMonth = getDaysInMonth(year, month)
-        const dates: string[] = []
-        for (let d = 1; d <= daysInMonth; d++) {
-          dates.push(formatDateStr(year, month, d))
-        }
-        // Load in batches of 30 (Firestore "in" limit)
-        const batch1 = dates.slice(0, 30)
-        const data = await getAvailabilityLocks(selectedListingId, batch1)
+        const data = await loadMonthLocks(selectedListingId, year, month)
         setLocks(data)
       } catch (err) {
         console.error("Error loading locks:", err)
@@ -104,7 +115,14 @@ export default function AdminAvailabilityPage() {
   const lockMap = useMemo(() => {
     const map = new Map<string, AvailabilityLock>()
     locks.forEach((lock) => {
-      map.set(lock.date, lock)
+      const existing = map.get(lock.date)
+      if (!existing) {
+        map.set(lock.date, { ...lock })
+        return
+      }
+      existing.bookedUnits = Number(existing.bookedUnits || 0) + Number(lock.bookedUnits || 0)
+      existing.maxUnits = Math.max(Number(existing.maxUnits || 0), Number(lock.maxUnits || 0))
+      existing.isBlocked = Boolean(existing.isBlocked || lock.isBlocked)
     })
     return map
   }, [locks])
@@ -126,14 +144,7 @@ export default function AdminAvailabilityPage() {
           ? "Date unblocked"
           : "Date blocked",
       })
-      // Reload locks
-      const daysInMonth = getDaysInMonth(year, month)
-      const dates: string[] = []
-      for (let d = 1; d <= daysInMonth; d++) {
-        dates.push(formatDateStr(year, month, d))
-      }
-      const batch1 = dates.slice(0, 30)
-      const data = await getAvailabilityLocks(selectedListingId, batch1)
+      const data = await loadMonthLocks(selectedListingId, year, month)
       setLocks(data)
     } catch {
       toast({
