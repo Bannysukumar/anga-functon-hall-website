@@ -752,10 +752,13 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
             const userRef = db.collection("users").doc(uid);
             const listingRef = db.collection("listings").doc(String(intent.listingId));
             const branchRef = db.collection("branches").doc(String(intent.branchId));
-            const [userSnap, listingSnap, branchSnap] = await Promise.all([
+            const couponId = intent.couponId ? String(intent.couponId) : "";
+            const couponRef = couponId ? db.collection("coupons").doc(couponId) : null;
+            const [userSnap, listingSnap, branchSnap, couponSnap] = await Promise.all([
                 transaction.get(userRef),
                 transaction.get(listingRef),
                 transaction.get(branchRef),
+                couponRef ? transaction.get(couponRef) : Promise.resolve(null),
             ]);
             if (!userSnap.exists)
                 throw new https_1.HttpsError("not-found", "User profile not found.");
@@ -898,14 +901,10 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
                 verifiedAt: now,
                 finalizedAt: now,
             });
-            if (intent.couponId) {
-                const couponRef = db.collection("coupons").doc(String(intent.couponId));
-                const couponSnap = await transaction.get(couponRef);
-                if (couponSnap.exists) {
-                    transaction.update(couponRef, {
-                        usedCount: Number(couponSnap.data()?.usedCount || 0) + 1,
-                    });
-                }
+            if (couponRef && couponSnap?.exists) {
+                transaction.update(couponRef, {
+                    usedCount: Number(couponSnap.data()?.usedCount || 0) + 1,
+                });
             }
             return {
                 idempotent: false,

@@ -922,10 +922,14 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
     const userRef = db.collection("users").doc(uid)
     const listingRef = db.collection("listings").doc(String(intent.listingId))
     const branchRef = db.collection("branches").doc(String(intent.branchId))
-    const [userSnap, listingSnap, branchSnap] = await Promise.all([
+    const couponId = intent.couponId ? String(intent.couponId) : ""
+    const couponRef = couponId ? db.collection("coupons").doc(couponId) : null
+
+    const [userSnap, listingSnap, branchSnap, couponSnap] = await Promise.all([
       transaction.get(userRef),
       transaction.get(listingRef),
       transaction.get(branchRef),
+      couponRef ? transaction.get(couponRef) : Promise.resolve(null),
     ])
     if (!userSnap.exists) throw new HttpsError("not-found", "User profile not found.")
     if (userSnap.data()?.isBlocked) {
@@ -1078,14 +1082,10 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
       finalizedAt: now,
     })
 
-    if (intent.couponId) {
-      const couponRef = db.collection("coupons").doc(String(intent.couponId))
-      const couponSnap = await transaction.get(couponRef)
-      if (couponSnap.exists) {
+    if (couponRef && couponSnap?.exists) {
         transaction.update(couponRef, {
           usedCount: Number(couponSnap.data()?.usedCount || 0) + 1,
         })
-      }
     }
 
     return {
