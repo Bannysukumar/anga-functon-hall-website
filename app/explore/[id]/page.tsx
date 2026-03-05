@@ -105,7 +105,9 @@ export default function ListingDetailPage() {
         chunks.push(dates.slice(index, index + 30))
       }
       const responses = await Promise.all(
-        chunks.map((chunk) => getAvailabilityLocks(listing.id, chunk))
+        chunks.map((chunk) =>
+          getAvailabilityLocks(listing.id, chunk, listing.roomId || undefined)
+        )
       )
       setLocks(responses.flat())
     } catch {

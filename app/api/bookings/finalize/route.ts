@@ -74,7 +74,14 @@ export async function POST(request: Request) {
       const listing = listingSnap.data()
       const pricing = intent.pricing || {}
       const slotId = intent.slotId || "fullday"
-      const lockDocId = `${intent.listingId}_${intent.checkInDate}_${slotId}`
+      const roomResourceId =
+        String(listing?.roomId || "").trim() &&
+        !["function_hall", "open_function_hall", "dining_hall", "local_tour"].includes(
+          String(listing?.type || "")
+        )
+          ? String(listing?.roomId || "").trim().toUpperCase()
+          : String(intent.listingId)
+      const lockDocId = `${roomResourceId}_${intent.checkInDate}_${slotId}`
       const lockRef = adminDb.collection("availabilityLocks").doc(lockDocId)
       const lockSnap = await transaction.get(lockRef)
 
@@ -109,7 +116,7 @@ export async function POST(request: Request) {
         })
       } else {
         transaction.set(lockRef, {
-          listingId: intent.listingId,
+          listingId: roomResourceId,
           date: intent.checkInDate,
           slotId,
           bookedUnits: unitsNeeded,
@@ -123,6 +130,7 @@ export async function POST(request: Request) {
       transaction.set(bookingRef, {
         userId: decoded.uid,
         listingId: intent.listingId,
+        roomId: String(listing?.roomId || ""),
         branchId: intent.branchId,
         listingType: listing?.type || "function_hall",
         listingTitle: listing?.title || "Listing",

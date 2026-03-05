@@ -44,6 +44,21 @@ function docToType<T>(docSnap: DocumentData): T {
   return { id: docSnap.id, ...docSnap.data() } as T
 }
 
+function normalizeRoomId(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, "-")
+}
+
+async function ensureUniqueRoomId(roomId: string, excludeListingId?: string) {
+  const normalized = normalizeRoomId(roomId)
+  if (!normalized) return
+  const q = query(collection(db, "listings"), where("roomId", "==", normalized))
+  const snap = await getDocs(q)
+  const duplicate = snap.docs.find((docSnap) => docSnap.id !== excludeListingId)
+  if (duplicate) {
+    throw new Error(`Room ID "${normalized}" is already used by another listing.`)
+  }
+}
+
 // =====================
 // Branches
 // =====================
@@ -117,8 +132,16 @@ export async function getListing(id: string): Promise<Listing | null> {
 export async function createListing(
   data: Omit<Listing, "id" | "createdAt" | "updatedAt">
 ) {
+  const normalizedRoomId = normalizeRoomId(String(data.roomId || ""))
+  if (data.type === "room" && !normalizedRoomId) {
+    throw new Error("Room ID is required for room listings.")
+  }
+  if (normalizedRoomId) {
+    await ensureUniqueRoomId(normalizedRoomId)
+  }
   const ref = await addDoc(collection(db, "listings"), {
     ...data,
+    roomId: normalizedRoomId || "",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -126,8 +149,16 @@ export async function createListing(
 }
 
 export async function updateListing(id: string, data: Partial<Listing>) {
+  const normalizedRoomId = normalizeRoomId(String(data.roomId || ""))
+  if (data.type === "room" && !normalizedRoomId) {
+    throw new Error("Room ID is required for room listings.")
+  }
+  if (normalizedRoomId) {
+    await ensureUniqueRoomId(normalizedRoomId, id)
+  }
   await updateDoc(doc(db, "listings", id), {
     ...data,
+    roomId: normalizedRoomId || "",
     updatedAt: serverTimestamp(),
   })
 }
@@ -235,15 +266,33 @@ export async function updateBooking(id: string, data: Partial<Booking>) {
 // =====================
 export async function getAvailabilityLocks(
   listingId: string,
-  dates?: string[]
+  dates?: string[],
+  linkedRoomId?: string
 ): Promise<AvailabilityLock[]> {
   const constraints: QueryConstraint[] = [where("listingId", "==", listingId)]
   if (dates && dates.length > 0 && dates.length <= 30) {
     constraints.push(where("date", "in", dates))
   }
-  const q = query(collection(db, "availabilityLocks"), ...constraints)
-  const snap = await getDocs(q)
-  return snap.docs.map((d) => docToType<AvailabilityLock>(d))
+  const primaryQuery = getDocs(query(collection(db, "availabilityLocks"), ...constraints))
+  const secondaryQuery =
+    linkedRoomId && linkedRoomId !== listingId
+      ? getDocs(
+          query(
+            collection(db, "availabilityLocks"),
+            ...(dates && dates.length > 0 && dates.length <= 30
+              ? [where("listingId", "==", linkedRoomId), where("date", "in", dates)]
+              : [where("listingId", "==", linkedRoomId)])
+          )
+        )
+      : Promise.resolve(null)
+
+  const [primarySnap, secondarySnap] = await Promise.all([primaryQuery, secondaryQuery])
+  const map = new Map<string, AvailabilityLock>()
+  ;[...(primarySnap?.docs || []), ...(secondarySnap?.docs || [])].forEach((docSnap) => {
+    const lock = docToType<AvailabilityLock>(docSnap)
+    map.set(lock.id, lock)
+  })
+  return Array.from(map.values())
 }
 
 export async function setAvailabilityBlock(
@@ -395,7 +444,17 @@ export async function updateSecureSettings(data: Partial<SecureSettings>) {
   }
 
   const smtpPayload: Partial<SecureSettings> = {}
-  const smtpKeys: (keyof SecureSettings)[] = [
+  const smtpKeys: Array<
+    | "smtpHost"
+    | "smtpPort"
+    | "smtpSecure"
+    | "smtpUser"
+    | "smtpPass"
+    | "smtpFromName"
+    | "smtpFromEmail"
+    | "adminNotificationEmail"
+    | "appBaseUrl"
+  > = [
     "smtpHost",
     "smtpPort",
     "smtpSecure",
@@ -408,7 +467,9 @@ export async function updateSecureSettings(data: Partial<SecureSettings>) {
   ]
   for (const key of smtpKeys) {
     if (key in smtpFields) {
-      smtpPayload[key] = smtpFields[key]
+      ;(smtpPayload as Record<string, unknown>)[key] = (smtpFields as Record<string, unknown>)[
+        key
+      ]
     }
   }
   if (Object.keys(smtpPayload).length > 0) {

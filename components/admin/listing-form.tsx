@@ -35,6 +35,7 @@ interface ListingFormProps {
 }
 
 const DEFAULT_LISTING = {
+  roomId: "",
   branchId: "",
   title: "",
   type: "function_hall" as ListingType,
@@ -63,6 +64,7 @@ function buildFormState(initialData?: Listing) {
   return {
     ...DEFAULT_LISTING,
     branchId: initialData.branchId || "",
+    roomId: initialData.roomId || "",
     title: initialData.title || "",
     type: initialData.type || DEFAULT_LISTING.type,
     description: initialData.description || "",
@@ -217,8 +219,19 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
       toast.error("Original price must be greater than or equal to offer price")
       return
     }
+    if (form.type === "room" && !String(form.roomId || "").trim()) {
+      toast.error("Unique Room ID is required for room listings")
+      return
+    }
+    const normalizedRoomId = String(form.roomId || "")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, "-")
     try {
-      await onSave(form as Omit<Listing, "id" | "createdAt" | "updatedAt">)
+      await onSave({
+        ...(form as Omit<Listing, "id" | "createdAt" | "updatedAt">),
+        roomId: normalizedRoomId,
+      })
       router.push("/admin/listings")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save listing")
@@ -271,6 +284,17 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Unique Room ID {form.type === "room" ? "*" : "(optional)"}</Label>
+            <Input
+              value={form.roomId}
+              onChange={(e) => setForm({ ...form, roomId: e.target.value })}
+              placeholder="ROOM-101"
+            />
+            <p className="text-xs text-muted-foreground">
+              Use the same Room ID for listings that represent the same physical room.
+            </p>
           </div>
           <div className="flex flex-col gap-2">
             <Label>Branch</Label>

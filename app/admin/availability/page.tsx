@@ -91,7 +91,13 @@ export default function AdminAvailabilityPage() {
     }
 
     const chunksData = await Promise.all(
-      chunks.map((chunk) => getAvailabilityLocks(listingId, chunk))
+      chunks.map((chunk) =>
+        getAvailabilityLocks(
+          listingId,
+          chunk,
+          selectedListing?.roomId || undefined
+        )
+      )
     )
     return chunksData.flat()
   }

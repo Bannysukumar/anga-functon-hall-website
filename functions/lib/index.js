@@ -283,6 +283,9 @@ async function allocateResourcesInTransaction(transaction, params) {
     const labels = [];
     const reservationDocIds = [];
     const listingType = String(listing.type || "function_hall");
+    const roomResourceId = !isSlotBased(listingType) && String(listing.roomId || "").trim()
+        ? String(listing.roomId).trim().toUpperCase()
+        : listingRef.id;
     if (isSlotBased(listingType)) {
         const slotKey = slotId || "full_day";
         const reservationId = `${listingRef.id}_${dateKey}_${slotKey}`;
@@ -330,7 +333,7 @@ async function allocateResourcesInTransaction(transaction, params) {
     const unitsSnap = await transaction.get(unitsQuery);
     if (!unitsSnap.empty) {
         const selectedUnitIds = [];
-        const defaultLockId = `${listingRef.id}_${dateKey}_default`;
+        const defaultLockId = `${roomResourceId}_${dateKey}_default`;
         const defaultLockRef = db.collection("availabilityLocks").doc(defaultLockId);
         const unitCandidates = unitsSnap.docs.map((unitDoc) => {
             const reservationId = `${unitDoc.id}_${dateKey}`;
@@ -362,7 +365,7 @@ async function allocateResourcesInTransaction(transaction, params) {
             labels.push(selected.unitLabel);
             reservationDocIds.push(selected.reservationId);
             transaction.set(selected.reservationRef, {
-                listingId: listingRef.id,
+                listingId: roomResourceId,
                 bookingId: bookingRef.id,
                 userId,
                 dateKey,
@@ -374,7 +377,7 @@ async function allocateResourcesInTransaction(transaction, params) {
         const currentBooked = Number(defaultLockSnap.data()?.bookedUnits || 0);
         const capacity = Number(listing.inventory || unitsSnap.docs.length || unitsBooked);
         transaction.set(defaultLockRef, {
-            listingId: listingRef.id,
+            listingId: roomResourceId,
             date: lockDate,
             slotId: "default",
             bookedUnits: currentBooked + selectedReservations.length,
@@ -393,9 +396,9 @@ async function allocateResourcesInTransaction(transaction, params) {
             dateKey,
         };
     }
-    const inventoryReservationId = `${listingRef.id}_${dateKey}_inventory`;
+    const inventoryReservationId = `${roomResourceId}_${dateKey}_inventory`;
     const inventoryRef = db.collection("reservations").doc(inventoryReservationId);
-    const defaultLockId = `${listingRef.id}_${dateKey}_default`;
+    const defaultLockId = `${roomResourceId}_${dateKey}_default`;
     const defaultLockRef = db.collection("availabilityLocks").doc(defaultLockId);
     const inventorySnap = await transaction.get(inventoryRef);
     const defaultLockSnap = await transaction.get(defaultLockRef);
@@ -405,7 +408,7 @@ async function allocateResourcesInTransaction(transaction, params) {
         throw new https_1.HttpsError("failed-precondition", "Inventory unavailable for selected date.");
     }
     transaction.set(inventoryRef, {
-        listingId: listingRef.id,
+        listingId: roomResourceId,
         bookingId: bookingRef.id,
         userId,
         dateKey,
@@ -414,7 +417,7 @@ async function allocateResourcesInTransaction(transaction, params) {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     transaction.set(defaultLockRef, {
-        listingId: listingRef.id,
+        listingId: roomResourceId,
         date: lockDate,
         slotId: "default",
         bookedUnits: allocated + unitsBooked,
@@ -903,6 +906,7 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
             transaction.set(bookingRef, {
                 userId: uid,
                 listingId: intent.listingId,
+                roomId: String(listing.roomId || ""),
                 branchId: intent.branchId,
                 listingType: listing.type || "function_hall",
                 listingTitle: listing.title || "Listing",

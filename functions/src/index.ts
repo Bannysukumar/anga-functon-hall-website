@@ -358,6 +358,10 @@ async function allocateResourcesInTransaction(
   const labels: string[] = []
   const reservationDocIds: string[] = []
   const listingType = String(listing.type || "function_hall")
+  const roomResourceId =
+    !isSlotBased(listingType) && String(listing.roomId || "").trim()
+      ? String(listing.roomId).trim().toUpperCase()
+      : listingRef.id
 
   if (isSlotBased(listingType)) {
     const slotKey = slotId || "full_day"
@@ -418,7 +422,7 @@ async function allocateResourcesInTransaction(
   const unitsSnap = await transaction.get(unitsQuery)
   if (!unitsSnap.empty) {
     const selectedUnitIds: string[] = []
-    const defaultLockId = `${listingRef.id}_${dateKey}_default`
+    const defaultLockId = `${roomResourceId}_${dateKey}_default`
     const defaultLockRef = db.collection("availabilityLocks").doc(defaultLockId)
     const unitCandidates = unitsSnap.docs.map((unitDoc) => {
       const reservationId = `${unitDoc.id}_${dateKey}`
@@ -462,7 +466,7 @@ async function allocateResourcesInTransaction(
       labels.push(selected.unitLabel)
       reservationDocIds.push(selected.reservationId)
       transaction.set(selected.reservationRef, {
-        listingId: listingRef.id,
+        listingId: roomResourceId,
         bookingId: bookingRef.id,
         userId,
         dateKey,
@@ -476,7 +480,7 @@ async function allocateResourcesInTransaction(
     transaction.set(
       defaultLockRef,
       {
-        listingId: listingRef.id,
+        listingId: roomResourceId,
         date: lockDate,
         slotId: "default",
         bookedUnits: currentBooked + selectedReservations.length,
@@ -499,9 +503,9 @@ async function allocateResourcesInTransaction(
     }
   }
 
-  const inventoryReservationId = `${listingRef.id}_${dateKey}_inventory`
+  const inventoryReservationId = `${roomResourceId}_${dateKey}_inventory`
   const inventoryRef = db.collection("reservations").doc(inventoryReservationId)
-  const defaultLockId = `${listingRef.id}_${dateKey}_default`
+  const defaultLockId = `${roomResourceId}_${dateKey}_default`
   const defaultLockRef = db.collection("availabilityLocks").doc(defaultLockId)
   const inventorySnap = await transaction.get(inventoryRef)
   const defaultLockSnap = await transaction.get(defaultLockRef)
@@ -513,7 +517,7 @@ async function allocateResourcesInTransaction(
   transaction.set(
     inventoryRef,
     {
-      listingId: listingRef.id,
+      listingId: roomResourceId,
       bookingId: bookingRef.id,
       userId,
       dateKey,
@@ -526,7 +530,7 @@ async function allocateResourcesInTransaction(
   transaction.set(
     defaultLockRef,
     {
-      listingId: listingRef.id,
+      listingId: roomResourceId,
       date: lockDate,
       slotId: "default",
       bookedUnits: allocated + unitsBooked,
@@ -1105,6 +1109,7 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
     transaction.set(bookingRef, {
       userId: uid,
       listingId: intent.listingId,
+      roomId: String(listing.roomId || ""),
       branchId: intent.branchId,
       listingType: listing.type || "function_hall",
       listingTitle: listing.title || "Listing",
