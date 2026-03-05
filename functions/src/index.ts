@@ -974,6 +974,9 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
     const invoiceRef = db.collection("invoices").doc()
     const counterRef = db.collection("counters").doc("invoices")
     const now = admin.firestore.FieldValue.serverTimestamp()
+    const counterSnap = await transaction.get(counterRef)
+    const currentCounter = Number(counterSnap.data()?.value || 0) + 1
+    const invoiceNumber = nextInvoiceNumber(currentCounter)
 
     const allocation = await allocateResourcesInTransaction(transaction, {
       bookingRef,
@@ -984,10 +987,6 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
       unitsBooked,
       userId: uid,
     })
-
-    const counterSnap = await transaction.get(counterRef)
-    const currentCounter = Number(counterSnap.data()?.value || 0) + 1
-    const invoiceNumber = nextInvoiceNumber(currentCounter)
     transaction.set(counterRef, { value: currentCounter }, { merge: true })
 
     const pricing = intent.pricing || {}
