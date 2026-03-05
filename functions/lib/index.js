@@ -279,7 +279,7 @@ function buildCheckInOutSchedule(listingType, checkInDate) {
     };
 }
 async function allocateResourcesInTransaction(transaction, params) {
-    const { bookingRef, listingRef, listing, dateKey, slotId, unitsBooked, userId } = params;
+    const { bookingRef, listingRef, listing, dateKey, lockDate, slotId, unitsBooked, userId } = params;
     const labels = [];
     const reservationDocIds = [];
     const listingType = String(listing.type || "function_hall");
@@ -307,7 +307,7 @@ async function allocateResourcesInTransaction(transaction, params) {
         }, { merge: true });
         transaction.set(lockRef, {
             listingId: listingRef.id,
-            date: dateKey,
+            date: lockDate,
             slotId: slotKey,
             bookedUnits: allocated + unitsBooked,
             maxUnits: capacity,
@@ -375,7 +375,7 @@ async function allocateResourcesInTransaction(transaction, params) {
         const capacity = Number(listing.inventory || unitsSnap.docs.length || unitsBooked);
         transaction.set(defaultLockRef, {
             listingId: listingRef.id,
-            date: dateKey,
+            date: lockDate,
             slotId: "default",
             bookedUnits: currentBooked + selectedReservations.length,
             maxUnits: capacity,
@@ -415,7 +415,7 @@ async function allocateResourcesInTransaction(transaction, params) {
     }, { merge: true });
     transaction.set(defaultLockRef, {
         listingId: listingRef.id,
-        date: dateKey,
+        date: lockDate,
         slotId: "default",
         bookedUnits: allocated + unitsBooked,
         maxUnits: capacity,
@@ -825,6 +825,7 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
             const listing = listingSnap.data() || {};
             const unitsBooked = Math.max(1, Number(intent.unitsBooked || 1));
             const dateKey = toDateKey(String(intent.checkInDate || ""));
+            const lockDate = String(intent.checkInDate || "");
             const schedule = buildCheckInOutSchedule(String(listing.type || "function_hall"), String(intent.checkInDate || ""));
             const bookingRef = db.collection("bookings").doc();
             const paymentRef = db.collection("payments").doc();
@@ -839,6 +840,7 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
                 listingRef,
                 listing,
                 dateKey,
+                lockDate,
                 slotId: intent.slotId || null,
                 unitsBooked,
                 userId: uid,

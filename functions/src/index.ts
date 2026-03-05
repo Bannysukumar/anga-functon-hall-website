@@ -348,12 +348,13 @@ async function allocateResourcesInTransaction(
     listingRef: FirebaseFirestore.DocumentReference
     listing: FirebaseFirestore.DocumentData
     dateKey: string
+    lockDate: string
     slotId: string | null
     unitsBooked: number
     userId: string
   }
 ) {
-  const { bookingRef, listingRef, listing, dateKey, slotId, unitsBooked, userId } = params
+  const { bookingRef, listingRef, listing, dateKey, lockDate, slotId, unitsBooked, userId } = params
   const labels: string[] = []
   const reservationDocIds: string[] = []
   const listingType = String(listing.type || "function_hall")
@@ -391,7 +392,7 @@ async function allocateResourcesInTransaction(
       lockRef,
       {
         listingId: listingRef.id,
-        date: dateKey,
+        date: lockDate,
         slotId: slotKey,
         bookedUnits: allocated + unitsBooked,
         maxUnits: capacity,
@@ -476,7 +477,7 @@ async function allocateResourcesInTransaction(
       defaultLockRef,
       {
         listingId: listingRef.id,
-        date: dateKey,
+        date: lockDate,
         slotId: "default",
         bookedUnits: currentBooked + selectedReservations.length,
         maxUnits: capacity,
@@ -526,7 +527,7 @@ async function allocateResourcesInTransaction(
     defaultLockRef,
     {
       listingId: listingRef.id,
-      date: dateKey,
+      date: lockDate,
       slotId: "default",
       bookedUnits: allocated + unitsBooked,
       maxUnits: capacity,
@@ -1017,6 +1018,7 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
     const listing = listingSnap.data() || {}
     const unitsBooked = Math.max(1, Number(intent.unitsBooked || 1))
     const dateKey = toDateKey(String(intent.checkInDate || ""))
+    const lockDate = String(intent.checkInDate || "")
     const schedule = buildCheckInOutSchedule(
       String(listing.type || "function_hall"),
       String(intent.checkInDate || "")
@@ -1035,6 +1037,7 @@ export const verifyPaymentAndConfirmBooking = onCall(async (request) => {
       listingRef,
       listing,
       dateKey,
+      lockDate,
       slotId: intent.slotId || null,
       unitsBooked,
       userId: uid,
