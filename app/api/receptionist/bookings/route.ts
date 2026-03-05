@@ -8,6 +8,7 @@ import {
 } from "@/lib/server/receptionist-schemas"
 import { getRequestMeta, sanitizeText } from "@/lib/server/request-meta"
 import { buildBookingConfirmationMessage, sendWhatsAppMessage } from "@/lib/server/whatsapp"
+import { sendBookingEmail } from "@/lib/server/booking-email"
 
 function toInvoiceNumber(counter: number) {
   const year = new Date().getFullYear()
@@ -237,6 +238,12 @@ export async function POST(request: Request) {
           : customerUserSnap?.exists
             ? String(customerUserSnap.data()?.phone || "")
             : ""
+      const resolvedCustomerEmail =
+        customerSnap?.exists
+          ? String(customerSnap.data()?.email || "")
+          : customerUserSnap?.exists
+            ? String(customerUserSnap.data()?.email || "")
+            : ""
 
       transaction.set(counterRef, { value: nextCounter }, { merge: true })
       if (availabilityLockSnap.exists) {
@@ -269,6 +276,7 @@ export async function POST(request: Request) {
         customerId: customerId || null,
         customerName: resolvedCustomerName,
         customerPhone: resolvedCustomerPhone,
+        customerEmail: resolvedCustomerEmail,
         listingId,
         roomId: String(listing.roomId || ""),
         roomNumber: String(listing.roomNumber || ""),
@@ -355,7 +363,11 @@ export async function POST(request: Request) {
         invoiceNumber,
         customerName: resolvedCustomerName,
         customerPhone: resolvedCustomerPhone,
+        customerEmail: resolvedCustomerEmail,
         listingTitle: String(listing.title || "Listing"),
+        totalAmount,
+        status: "confirmed",
+        checkInDate: checkInTs,
       }
     })
 
@@ -375,6 +387,14 @@ export async function POST(request: Request) {
         },
         { merge: true }
       )
+    }
+    try {
+      await sendBookingEmail("BOOKING_CONFIRMATION", String(result.bookingId), result)
+    } catch (error) {
+      console.error("Booking confirmation email dispatch failed", {
+        bookingId: result.bookingId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
 
     return NextResponse.json(result)

@@ -134,6 +134,7 @@ export async function POST(request: Request) {
 
       transaction.set(bookingRef, {
         userId: decoded.uid,
+        customerEmail: String(userSnap.data()?.email || ""),
         listingId: intent.listingId,
         roomId: String(listing?.roomId || ""),
         roomNumber: String(listing?.roomNumber || ""),

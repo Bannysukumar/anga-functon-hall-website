@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/server/firebase-admin"
 import { requirePermission, toHttpError } from "@/lib/server/permission-check"
 import { updateBookingSchema } from "@/lib/server/receptionist-schemas"
 import { getRequestMeta, sanitizeText } from "@/lib/server/request-meta"
+import { sendBookingEmail } from "@/lib/server/booking-email"
 
 function actionToPermission(action: string) {
   if (action === "cancel") return "cancel_booking" as const
@@ -89,6 +90,22 @@ export async function PATCH(
     }
 
     await ref.set(updates, { merge: true })
+    const emailPayload = { ...current, ...updates }
+    try {
+      if (action === "cancel") {
+        await sendBookingEmail("BOOKING_CANCELLED", id, emailPayload)
+      } else if (action === "check_out") {
+        await sendBookingEmail("BOOKING_CHECKOUT", id, emailPayload)
+      } else if (action === "edit") {
+        await sendBookingEmail("BOOKING_UPDATED", id, emailPayload)
+      }
+    } catch (error) {
+      console.error("Booking email dispatch failed", {
+        bookingId: id,
+        action,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
     await adminDb.collection("auditLogs").add({
       entity: "booking",
       entityId: id,

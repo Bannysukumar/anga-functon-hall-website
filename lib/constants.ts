@@ -97,12 +97,12 @@ export const DEFAULT_SETTINGS = {
     },
   ],
   featuredListingIds: [],
-  bookingEmailSubjectTemplate: "Booking Confirmed - {invoiceNumber}",
+  bookingEmailSubjectTemplate: "Your Booking Confirmation - Anga Function Hall",
   bookingEmailHtmlTemplate:
-    "<p>Hello {userName},</p><p>Your booking is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice Number:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Date:</strong> {dates}</p><p><strong>Slot:</strong> {slots}</p><p><strong>Allocated:</strong> {allocatedUnits}</p><p><strong>Amount Paid:</strong> INR {amountPaid}</p><p><a href='{invoiceLink}'>Download Invoice</a></p>",
-  checkoutEmailSubjectTemplate: "Checkout Confirmed - {bookingId}",
+    "<p>Hello {userName},</p><p>Your booking at Anga Function Hall is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Event Date:</strong> {dates}</p><p><strong>Hall/Room:</strong> {listingName}</p><p><strong>Booking Amount:</strong> INR {bookingAmount}</p><p><strong>Status:</strong> {bookingStatus}</p><p><a href='{invoiceLink}'>Download Invoice</a></p>",
+  checkoutEmailSubjectTemplate: "Thank You for Choosing Anga Function Hall",
   checkoutEmailHtmlTemplate:
-    "<p>Hello {userName},</p><p>Your checkout is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Allocated:</strong> {allocation}</p><p><strong>Check-out time:</strong> {checkOutAt}</p><p>Thank you for choosing Anga Function Hall.</p>",
+    "<p>Hello {userName},</p><p>Your event is completed successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Event Date:</strong> {eventDate}</p><p><strong>Checkout Date:</strong> {checkOutAt}</p><p><strong>Total Amount Paid:</strong> INR {paidAmount}</p><p>Thank you for choosing Anga Function Hall.</p>",
   paymentRemindersEnabled: true,
   socialLinks: [
     {

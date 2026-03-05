@@ -686,17 +686,15 @@ async function sendConfirmationEmail(
 
   const settingsSnap = await db.collection("settings").doc("global").get()
   const templateData = settingsSnap.data() || {}
-  const defaultSubject = "Booking Confirmed - {invoiceNumber}"
+  const defaultSubject = "Your Booking Confirmation - Anga Function Hall"
   const defaultBody = `
     <p>Hello {userName},</p>
-    <p>Your booking is confirmed.</p>
+    <p>Your booking at Anga Function Hall is confirmed.</p>
     <p><strong>Booking ID:</strong> {bookingId}</p>
-    <p><strong>Invoice Number:</strong> {invoiceNumber}</p>
-    <p><strong>Listing:</strong> {listingName}</p>
-    <p><strong>Date:</strong> {dates}</p>
-    <p><strong>Slot:</strong> {slots}</p>
-    <p><strong>Allocated:</strong> {allocatedUnits}</p>
-    <p><strong>Amount Paid:</strong> INR {amountPaid}</p>
+    <p><strong>Event Date:</strong> {dates}</p>
+    <p><strong>Hall/Room:</strong> {listingName}</p>
+    <p><strong>Booking Amount:</strong> INR {bookingAmount}</p>
+    <p><strong>Status:</strong> {bookingStatus}</p>
     <p><a href="{invoiceLink}">Download Invoice</a></p>
   `
   const templateValues = {
@@ -710,6 +708,8 @@ async function sendConfirmationEmail(
       (bookingData.allocatedResource?.labels || invoiceData.service?.allocatedLabels || []).join(", ")
     ),
     amountPaid: Number(bookingData.advancePaid || invoiceData.breakdown?.paidAmount || 0).toFixed(2),
+    bookingAmount: Number(bookingData.totalAmount || invoiceData.breakdown?.totalAmount || 0).toFixed(2),
+    bookingStatus: String(bookingData.status || "confirmed"),
     invoiceLink: appBaseUrl
       ? `${appBaseUrl}/invoice/${invoiceData.id || bookingData.invoiceId || ""}`
       : "",
@@ -784,15 +784,17 @@ async function sendCheckoutEmail(
 
   const settingsSnap = await db.collection("settings").doc("global").get()
   const settings = (settingsSnap.data() || {}) as Record<string, any>
-  const defaultSubject = "Checkout Confirmed - {bookingId}"
+  const defaultSubject = "Thank You for Choosing Anga Function Hall"
   const defaultBody =
-    "<p>Hello {userName},</p><p>Your checkout is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Allocated:</strong> {allocation}</p><p><strong>Check-out time:</strong> {checkOutAt}</p><p>Thank you for staying with us.</p>"
+    "<p>Hello {userName},</p><p>Your event is completed successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Event Date:</strong> {eventDate}</p><p><strong>Checkout Date:</strong> {checkOutAt}</p><p><strong>Total Amount Paid:</strong> INR {paidAmount}</p><p>Thank you for choosing Anga Function Hall.</p>"
   const templateValues = {
     userName: String(invoiceData.customer?.name || "Guest"),
     bookingId: String(bookingData.id || ""),
     invoiceNumber: String(bookingData.invoiceNumber || invoiceData.invoiceNumber || ""),
     listingName: String(bookingData.listingTitle || ""),
     allocation: String((bookingData.allocatedResource?.labels || []).join(", ")),
+    eventDate: String(invoiceData.service?.dateKey || ""),
+    paidAmount: Number(invoiceData.breakdown?.paidAmount || bookingData.advancePaid || 0).toFixed(2),
     checkOutAt: new Date().toLocaleString("en-IN"),
   }
   const subject = renderTemplate(
