@@ -62,7 +62,7 @@ export default function AdminGalleryPage() {
   const [editingItem, setEditingItem] = useState<AdminGalleryItem | null>(null)
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [uploadProgress, setUploadProgress] = useState(0)
   const [saving, setSaving] = useState(false)
 
@@ -113,7 +113,7 @@ export default function AdminGalleryPage() {
     setEditingItem(null)
     setTitle("")
     setDescription("")
-    setFile(null)
+    setFiles([])
     setUploadProgress(0)
   }
 
@@ -126,30 +126,37 @@ export default function AdminGalleryPage() {
     setEditingItem(item)
     setTitle(item.title || "")
     setDescription(item.description || "")
-    setFile(null)
+    setFiles([])
     setUploadProgress(0)
     setDialogOpen(true)
   }
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = event.target.files?.[0]
-    if (!selected) {
-      setFile(null)
+    const list = event.target.files
+    if (!list || list.length === 0) {
+      setFiles([])
       return
     }
 
-    if (!ACCEPTED_TYPES.includes(selected.type)) {
-      toast.error("Please upload a JPG, PNG or WebP image.")
-      event.target.value = ""
-      return
-    }
-    if (selected.size > MAX_FILE_SIZE_BYTES) {
-      toast.error("Image is too large. Maximum size is 5 MB.")
-      event.target.value = ""
-      return
+    const next: File[] = []
+    for (let i = 0; i < list.length; i++) {
+      const selected = list.item(i)
+      if (!selected) continue
+
+      if (!ACCEPTED_TYPES.includes(selected.type)) {
+        toast.error("Please upload only JPG, PNG or WebP images.")
+        event.target.value = ""
+        return
+      }
+      if (selected.size > MAX_FILE_SIZE_BYTES) {
+        toast.error("One of the images is too large. Maximum size is 5 MB.")
+        event.target.value = ""
+        return
+      }
+      next.push(selected)
     }
 
-    setFile(selected)
+    setFiles(next)
   }
 
   async function compressImageIfNeeded(file: File): Promise<File> {
@@ -199,28 +206,30 @@ export default function AdminGalleryPage() {
       toast.error("Title is required.")
       return
     }
-    if (!editingItem && !file) {
-      toast.error("Please select an image to upload.")
+    if (!editingItem && files.length === 0) {
+      toast.error("Please select at least one image to upload.")
       return
     }
 
     setSaving(true)
     try {
       const token = await user.getIdToken()
-      let imageUrl = editingItem?.imageUrl || ""
-      let storagePath = editingItem?.storagePath || ""
-
-      if (file) {
-        const optimizedFile = await compressImageIfNeeded(file)
-        const path = getGalleryImagePath(optimizedFile.name)
-        setUploadProgress(0)
-        imageUrl = await uploadImage(optimizedFile, path, (progress) =>
-          setUploadProgress(progress)
-        )
-        storagePath = path
-      }
 
       if (editingItem) {
+        // For edit, we only use the first selected file (if any)
+        let imageUrl = editingItem.imageUrl
+        let storagePath = editingItem.storagePath
+
+        if (files[0]) {
+          const optimizedFile = await compressImageIfNeeded(files[0])
+          const path = getGalleryImagePath(optimizedFile.name)
+          setUploadProgress(0)
+          imageUrl = await uploadImage(optimizedFile, path, (progress) =>
+            setUploadProgress(progress)
+          )
+          storagePath = path
+        }
+
         const res = await fetch(`/api/admin/gallery/${editingItem.id}`, {
           method: "PATCH",
           headers: {
@@ -230,8 +239,8 @@ export default function AdminGalleryPage() {
           body: JSON.stringify({
             title: title.trim(),
             description: description.trim(),
-            imageUrl: file ? imageUrl : undefined,
-            storagePath: file ? storagePath : undefined,
+            imageUrl: files[0] ? imageUrl : undefined,
+            storagePath: files[0] ? storagePath : undefined,
           }),
         })
         if (!res.ok) {
@@ -244,26 +253,49 @@ export default function AdminGalleryPage() {
         )
         toast.success("Image updated.")
       } else {
-        const res = await fetch("/api/admin/gallery", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            title: title.trim(),
-            description: description.trim(),
-            imageUrl,
-            storagePath,
-          }),
-        })
-        if (!res.ok) {
-          const body = (await res.json()) as { error?: string }
-          throw new Error(body.error || "Failed to create image.")
+        // Create one gallery item per selected file
+        const createdItems: AdminGalleryItem[] = []
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i]
+          const optimizedFile = await compressImageIfNeeded(file)
+          const path = getGalleryImagePath(optimizedFile.name)
+          setUploadProgress(0)
+          const imageUrl = await uploadImage(
+            optimizedFile,
+            path,
+            (progress) => setUploadProgress(progress)
+          )
+          const effectiveTitle =
+            title.trim() || file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")
+
+          const res = await fetch("/api/admin/gallery", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              title: effectiveTitle,
+              description: description.trim(),
+              imageUrl,
+              storagePath: path,
+            }),
+          })
+          if (!res.ok) {
+            const body = (await res.json()) as { error?: string }
+            throw new Error(body.error || "Failed to create image.")
+          }
+          const created = (await res.json()) as AdminGalleryItem
+          createdItems.push(created)
         }
-        const created = (await res.json()) as AdminGalleryItem
-        setItems((prev) => [created, ...prev])
-        toast.success("Image added to gallery.")
+        if (createdItems.length > 0) {
+          setItems((prev) => [...createdItems, ...prev])
+          toast.success(
+            createdItems.length === 1
+              ? "Image added to gallery."
+              : `${createdItems.length} images added to gallery.`
+          )
+        }
       }
 
       setDialogOpen(false)
@@ -303,6 +335,46 @@ export default function AdminGalleryPage() {
       )
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleMove = async (index: number, direction: "up" | "down") => {
+    if (!user) return
+    const targetIndex = direction === "up" ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= items.length) return
+
+    const reordered = [...items]
+    const [moved] = reordered.splice(index, 1)
+    reordered.splice(targetIndex, 0, moved)
+
+    // Recompute sortOrder locally
+    const withOrder = reordered.map((item, idx) => ({
+      ...item,
+      sortOrder: idx + 1,
+    }))
+    setItems(withOrder)
+
+    const token = await user.getIdToken()
+    const changed = [index, targetIndex]
+      .map((i) => withOrder[i])
+      .filter(Boolean)
+
+    try {
+      await Promise.all(
+        changed.map((item) =>
+          fetch(`/api/admin/gallery/${item.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ sortOrder: item.sortOrder ?? 0 }),
+          })
+        )
+      )
+    } catch (error) {
+      console.error("Failed to update sort order", error)
+      toast.error("Failed to update display order. Please refresh.")
     }
   }
 
@@ -356,7 +428,7 @@ export default function AdminGalleryPage() {
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-              {items.map((item) => (
+              {items.map((item, index) => (
                 <Card key={item.id} className="overflow-hidden">
                   <div className="relative aspect-[4/3] w-full bg-muted">
                     {item.imageUrl ? (
@@ -375,6 +447,14 @@ export default function AdminGalleryPage() {
                   <CardContent className="flex flex-col gap-2 p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-1 flex-col gap-1">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="inline-flex h-5 items-center justify-center rounded-full bg-secondary px-2 text-[11px] font-medium">
+                            #{index + 1}
+                          </span>
+                          {typeof item.sortOrder === "number" && item.sortOrder > 0 && (
+                            <span>Order: {item.sortOrder}</span>
+                          )}
+                        </div>
                         <p className="truncate text-sm font-medium text-foreground">
                           {item.title || "Untitled image"}
                         </p>
@@ -413,6 +493,18 @@ export default function AdminGalleryPage() {
                           <DropdownMenuItem onClick={() => openEditDialog(item)}>
                             <Pencil className="mr-2 h-3.5 w-3.5" />
                             Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={index === 0}
+                            onClick={() => handleMove(index, "up")}
+                          >
+                            Move up
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={index === items.length - 1}
+                            onClick={() => handleMove(index, "down")}
+                          >
+                            Move down
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"

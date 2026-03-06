@@ -494,6 +494,7 @@ export interface GalleryItem {
   title: string
   description: string
   uploadedBy?: string
+  sortOrder?: number
   createdAt: Timestamp
   updatedAt: Timestamp
 }

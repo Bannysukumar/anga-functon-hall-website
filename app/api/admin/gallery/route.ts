@@ -3,90 +3,33 @@ import { Timestamp } from "firebase-admin/firestore"
 import { adminDb } from "@/lib/server/firebase-admin"
 import { requirePermission, toHttpError } from "@/lib/server/permission-check"
 
-const INITIAL_STATIC_FILENAMES: string[] = [
-  "SSP01265.JPG",
-  "SSP00797.JPG",
-  "SSP00811.JPG",
-  "SSP01269.JPG",
-  "SSP00807.JPG",
-  "SSP01262.JPG",
-  "SSP00802.JPG",
-  "SSP01275.JPG",
-  "SSP00812.JPG",
-  "SSP00813.JPG",
-  "SSP00798.JPG",
-  "SSP00806.JPG",
-  "SSP01267.JPG",
-  "SSP01270.JPG",
-  "SSP01266.JPG",
-  "SSP01263.JPG",
-  "SSP01273.JPG",
-  "SSP01327.JPG",
-  "SSP01264.JPG",
-  "SSP00810.JPG",
-  "SSP00823.JPG",
-  "SSP00799.JPG",
-  "SSP00800.JPG",
-  "SSP01271.JPG",
-  "SSP01272.JPG",
-  "SSP00818.JPG",
-  "SSP01274.JPG",
-  "SSP00805.JPG",
-  "SSP01268.JPG",
-]
-
 export async function GET(request: Request) {
   try {
     await requirePermission(request, "CMS_EDIT")
 
-    let snap = await adminDb
-      .collection("gallery")
-      .orderBy("createdAt", "desc")
-      .limit(500)
-      .get()
+    const snap = await adminDb.collection("gallery").get()
 
-    // Seed initial static images from /public/images if gallery is empty
-    if (snap.empty && INITIAL_STATIC_FILENAMES.length > 0) {
-      const batch = adminDb.batch()
-      const now = Timestamp.now()
-      const colRef = adminDb.collection("gallery")
-      INITIAL_STATIC_FILENAMES.forEach((name) => {
-        const ref = colRef.doc()
-        batch.set(ref, {
-          imageUrl: `/images/${name}`,
-          storagePath: "",
-          title: "",
-          description: "",
-          uploadedBy: "seed",
-          createdAt: now,
-          updatedAt: now,
-        })
+    const items = snap.docs
+      .map((doc) => {
+        const data = doc.data() || {}
+        return {
+          id: doc.id,
+          imageUrl: String(data.imageUrl || ""),
+          storagePath: String(data.storagePath || ""),
+          title: String(data.title || ""),
+          description: String(data.description || ""),
+          uploadedBy: String(data.uploadedBy || ""),
+          sortOrder:
+            typeof data.sortOrder === "number" ? (data.sortOrder as number) : 0,
+          createdAt: data.createdAt?.toDate
+            ? data.createdAt.toDate().toISOString()
+            : null,
+          updatedAt: data.updatedAt?.toDate
+            ? data.updatedAt.toDate().toISOString()
+            : null,
+        }
       })
-      await batch.commit()
-      snap = await adminDb
-        .collection("gallery")
-        .orderBy("createdAt", "desc")
-        .limit(500)
-        .get()
-    }
-
-    const items = snap.docs.map((doc) => {
-      const data = doc.data() || {}
-      return {
-        id: doc.id,
-        imageUrl: String(data.imageUrl || ""),
-        storagePath: String(data.storagePath || ""),
-        title: String(data.title || ""),
-        description: String(data.description || ""),
-        uploadedBy: String(data.uploadedBy || ""),
-        createdAt: data.createdAt?.toDate
-          ? data.createdAt.toDate().toISOString()
-          : null,
-        updatedAt: data.updatedAt?.toDate
-          ? data.updatedAt.toDate().toISOString()
-          : null,
-      }
-    })
+      .sort((a, b) => a.sortOrder - b.sortOrder || (b.createdAt || "").localeCompare(a.createdAt || ""))
 
     return NextResponse.json({ items })
   } catch (error) {
@@ -119,12 +62,22 @@ export async function POST(request: Request) {
     }
 
     const now = Timestamp.now()
-    const ref = await adminDb.collection("gallery").add({
+    const galleryCol = adminDb.collection("gallery")
+    const lastSnap = await galleryCol
+      .orderBy("sortOrder", "desc")
+      .limit(1)
+      .get()
+    const lastOrder =
+      lastSnap.empty || typeof lastSnap.docs[0].data().sortOrder !== "number"
+        ? 0
+        : (lastSnap.docs[0].data().sortOrder as number)
+    const ref = await galleryCol.add({
       imageUrl,
       storagePath,
       title,
       description,
       uploadedBy: uid,
+      sortOrder: lastOrder + 1,
       createdAt: now,
       updatedAt: now,
     })
@@ -137,6 +90,7 @@ export async function POST(request: Request) {
         title,
         description,
         uploadedBy: uid,
+        sortOrder: lastOrder + 1,
         createdAt: now.toDate().toISOString(),
         updatedAt: now.toDate().toISOString(),
       },
