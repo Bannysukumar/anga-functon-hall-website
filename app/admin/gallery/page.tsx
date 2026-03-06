@@ -552,17 +552,19 @@ export default function AdminGalleryPage() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="image">Image file</Label>
+              <Label htmlFor="image">Image files</Label>
               <div className="flex items-center gap-3">
                 <Input
                   id="image"
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
+                  multiple
                   onChange={handleFileChange}
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Accepted types: JPG, PNG, WebP. Max size: 5 MB.
+                Accepted types: JPG, PNG, WebP. Max size: 5 MB per image. You can
+                select multiple images at once.
               </p>
               {uploadProgress > 0 && uploadProgress < 100 && (
                 <p className="text-xs text-muted-foreground">
