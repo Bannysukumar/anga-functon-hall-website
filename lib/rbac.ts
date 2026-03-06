@@ -24,6 +24,7 @@ const ADMIN_ROUTE_PERMISSIONS: Record<string, Permission[]> = {
   "/admin/branches": ["SETTINGS_EDIT"],
   "/admin/availability": ["SETTINGS_EDIT"],
   "/admin/coupons": ["CMS_EDIT"],
+  "/admin/gallery": ["CMS_EDIT"],
   "/admin/analytics": ["BOOKINGS_VIEW"],
 }
 
@@ -54,6 +55,7 @@ export function getRequiredPermissionsForAdminPath(pathname: string): Permission
   if (pathname.startsWith("/admin/branches")) return ["SETTINGS_EDIT"]
   if (pathname.startsWith("/admin/availability")) return ["SETTINGS_EDIT"]
   if (pathname.startsWith("/admin/coupons")) return ["CMS_EDIT"]
+  if (pathname.startsWith("/admin/gallery")) return ["CMS_EDIT"]
   if (pathname.startsWith("/admin/analytics")) return ["BOOKINGS_VIEW"]
 
   return []

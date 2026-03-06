@@ -484,6 +484,21 @@ export interface VisitorLead {
 }
 
 // =====================
+// Gallery
+// =====================
+
+export interface GalleryItem {
+  id: string
+  imageUrl: string
+  storagePath: string
+  title: string
+  description: string
+  uploadedBy?: string
+  createdAt: Timestamp
+  updatedAt: Timestamp
+}
+
+// =====================
 // Checkout State (client-side)
 // =====================
 export interface CheckoutState {

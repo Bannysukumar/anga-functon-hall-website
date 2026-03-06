@@ -21,6 +21,7 @@ import {
   Clock3,
   ClipboardCheck,
   Banknote,
+  Images,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/hooks/use-auth"
@@ -41,6 +42,7 @@ const ADMIN_NAV: Array<{
   { href: "/admin/payments", label: "Payments", icon: CreditCard, permissions: ["PAYMENTS_VIEW"] },
   { href: "/admin/refunds", label: "Refunds", icon: Banknote, permissions: ["REFUNDS_MANAGE"] },
   { href: "/admin/coupons", label: "Coupons", icon: Ticket, permissions: ["CMS_EDIT"] },
+  { href: "/admin/gallery", label: "Gallery", icon: Images, permissions: ["CMS_EDIT"] },
   { href: "/admin/users", label: "Users", icon: Users, permissions: ["USERS_VIEW"] },
   { href: "/admin/roles", label: "Roles", icon: ShieldCheck, permissions: ["STAFF_ASSIGN_ROLE"] },
   { href: "/admin/staff", label: "Staff", icon: UserCog, permissions: ["STAFF_ASSIGN_ROLE"] },

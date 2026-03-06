@@ -50,3 +50,7 @@ export function getBannerImagePath(fileName: string) {
 export function getSiteLogoPath(fileName: string) {
   return `branding/logo/${Date.now()}_${fileName}`
 }
+
+export function getGalleryImagePath(fileName: string) {
+  return `gallery/${Date.now()}_${fileName}`
+}

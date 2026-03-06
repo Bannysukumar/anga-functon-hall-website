@@ -1,6 +1,7 @@
 import { getApps, initializeApp, cert, type App } from "firebase-admin/app"
 import { getAuth } from "firebase-admin/auth"
 import { getFirestore } from "firebase-admin/firestore"
+import { getStorage } from "firebase-admin/storage"
 import { existsSync, readFileSync } from "node:fs"
 
 function getFirebaseAdminApp(): App {
@@ -82,3 +83,4 @@ const adminApp = getFirebaseAdminApp()
 
 export const adminAuth = getAuth(adminApp)
 export const adminDb = getFirestore(adminApp)
+export const adminStorage = getStorage(adminApp)
