@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getRewardsDashboardData } from "@/lib/rewards-functions"
 
@@ -24,6 +24,14 @@ export default function ReferralLeaderboardPage() {
     }
     run()
   }, [])
+
+  const leaderboard = useMemo(() => {
+    if (!data) return []
+    return data.leaderboard
+      .filter((item) => Number(item.totalRewards || 0) > 0)
+      .map((item, index) => ({ ...item, rank: index + 1 }))
+  }, [data])
+
   if (loading) return <p className="text-sm text-muted-foreground">Loading leaderboard...</p>
   if (!data) return <p className="text-sm text-destructive">{error || "Failed to load leaderboard."}</p>
   return (
@@ -32,12 +40,16 @@ export default function ReferralLeaderboardPage() {
       <Card>
         <CardHeader><CardTitle>Top Referrers</CardTitle></CardHeader>
         <CardContent className="space-y-2">
-          {data.leaderboard.map((item) => (
-            <div key={item.userId} className="flex items-center justify-between text-sm">
-              <span>#{item.rank} {item.displayName}</span>
-              <span>{item.successfulReferrals} successful | ₹{item.totalRewards}</span>
-            </div>
-          ))}
+          {leaderboard.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No reward earners yet.</p>
+          ) : (
+            leaderboard.map((item) => (
+              <div key={item.userId} className="flex items-center justify-between text-sm">
+                <span>#{item.rank} {item.displayName}</span>
+                <span>{item.successfulReferrals} successful | ₹{item.totalRewards}</span>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
     </div>

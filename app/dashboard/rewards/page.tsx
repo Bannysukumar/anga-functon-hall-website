@@ -55,6 +55,12 @@ export default function RewardsCenterPage() {
     if (!referralLink) return ""
     return `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(referralLink)}`
   }, [referralLink])
+  const rewardLeaderboard = useMemo(() => {
+    if (!data) return []
+    return data.leaderboard
+      .filter((entry) => Number(entry.totalRewards || 0) > 0)
+      .map((entry, index) => ({ ...entry, rank: index + 1 }))
+  }, [data])
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading rewards...</div>
@@ -229,10 +235,10 @@ export default function RewardsCenterPage() {
           <CardTitle>Leaderboard</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {data.leaderboard.length === 0 ? (
+          {rewardLeaderboard.length === 0 ? (
             <p className="text-sm text-muted-foreground">Leaderboard data is not available yet.</p>
           ) : (
-            data.leaderboard.map((entry) => (
+            rewardLeaderboard.map((entry) => (
               <div
                 key={entry.userId}
                 className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
