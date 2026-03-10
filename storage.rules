@@ -30,6 +30,14 @@ service firebase.storage {
         request.resource.contentType.matches("image/.*");
     }
 
+    // Public gallery images uploaded from the admin panel
+    match /gallery/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() &&
+        request.resource != null &&
+        request.resource.contentType.matches("image/.*");
+    }
+
     match /invoices/{allPaths=**} {
       // Invoices are served via short-lived signed URLs from Cloud Functions.
       allow read: if false;

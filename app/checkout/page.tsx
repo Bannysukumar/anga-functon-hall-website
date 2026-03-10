@@ -14,6 +14,7 @@ import { DEFAULT_SETTINGS, LISTING_TYPE_LABELS } from "@/lib/constants"
 import { Header } from "@/components/layout/header"
 import { Footer } from "@/components/layout/footer"
 import { verifyPaymentAndConfirmBooking } from "@/lib/booking-functions"
+import { getRewardsDashboardData } from "@/lib/rewards-functions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -78,9 +79,12 @@ export default function CheckoutPage() {
 
   const [couponCode, setCouponCode] = useState("")
   const [couponDiscount, setCouponDiscount] = useState(0)
+  const [couponCashbackPreview, setCouponCashbackPreview] = useState(0)
   const [couponId, setCouponId] = useState<string | null>(null)
   const [applyingCoupon, setApplyingCoupon] = useState(false)
   const [paymentStatusCheck, setPaymentStatusCheck] = useState<"idle" | "polling" | "paid" | "failed">("idle")
+  const [walletBalance, setWalletBalance] = useState(0)
+  const [walletToUse, setWalletToUse] = useState(0)
 
   useEffect(() => {
     async function load() {
@@ -119,6 +123,19 @@ export default function CheckoutPage() {
     }
     load()
   }, [router])
+
+  useEffect(() => {
+    const run = async () => {
+      if (!user) return
+      try {
+        const res = await getRewardsDashboardData()
+        setWalletBalance(res.wallet.balance || 0)
+      } catch {
+        setWalletBalance(0)
+      }
+    }
+    run()
+  }, [user])
 
   useEffect(() => {
     const orderId = typeof window !== "undefined" ? sessionStorage.getItem("pendingPaymentOrderId") : null
@@ -207,15 +224,32 @@ export default function CheckoutPage() {
       }
 
       let discount = 0
-      if (coupon.discountType === "flat") {
-        discount = coupon.discountValue
+      let cashback = 0
+      if (coupon.rewardMode === "cashback") {
+        const rawCashback =
+          coupon.cashbackType === "percent"
+            ? Math.round(total * ((coupon.cashbackValue || 0) / 100))
+            : Number(coupon.cashbackValue || 0)
+        cashback =
+          Number(coupon.maxCashbackAmount || 0) > 0
+            ? Math.min(rawCashback, Number(coupon.maxCashbackAmount || 0))
+            : rawCashback
       } else {
-        discount = Math.round(total * (coupon.discountValue / 100))
+        if (coupon.discountType === "flat") {
+          discount = coupon.discountValue
+        } else {
+          discount = Math.round(total * (coupon.discountValue / 100))
+        }
       }
 
       setCouponDiscount(discount)
+      setCouponCashbackPreview(cashback)
       setCouponId(coupon.id)
-      toast.success(`Coupon applied! You save \u20B9${discount.toLocaleString("en-IN")}`)
+      if (cashback > 0) {
+        toast.success(`Coupon applied! Wallet cashback up to \u20B9${cashback.toLocaleString("en-IN")}`)
+      } else {
+        toast.success(`Coupon applied! You save \u20B9${discount.toLocaleString("en-IN")}`)
+      }
     } catch {
       toast.error("Failed to apply coupon")
     } finally {
@@ -280,6 +314,7 @@ export default function CheckoutPage() {
             quantity: addon.quantity,
           })),
           couponCode: couponId ? couponCode.trim() : undefined,
+          walletToUse,
         }),
       })
       const intentResult = (await intentResponse.json()) as
@@ -289,8 +324,8 @@ export default function CheckoutPage() {
       if (
         !intentResponse.ok ||
         !("intentId" in intentResult) ||
-        !intentResult.orderId ||
-        !intentResult.keyId
+        (!intentResult.orderId && Number(intentResult.amount || 0) > 0) ||
+        (!intentResult.keyId && Number(intentResult.amount || 0) > 0)
       ) {
         toast.error(
           ("error" in intentResult && intentResult.error) ||
@@ -304,6 +339,45 @@ export default function CheckoutPage() {
       sessionStorage.setItem("pendingPaymentIntentId", intentResult.intentId)
       sessionStorage.setItem("pendingPaymentPricing", JSON.stringify(intentResult.pricing || {}))
       sessionStorage.setItem("pendingPaymentListingTitle", listing.title)
+
+      if (Number(intentResult.amount || 0) <= 0) {
+        try {
+          setConfirming(true)
+          const finalizeResult = await verifyPaymentAndConfirmBooking({
+            intentId: intentResult.intentId,
+            razorpayOrderId: "",
+            razorpayPaymentId: "",
+            razorpaySignature: "",
+            walletOnly: true,
+          })
+          sessionStorage.removeItem("checkoutData")
+          sessionStorage.removeItem("pendingPaymentOrderId")
+          sessionStorage.removeItem("pendingPaymentIntentId")
+          sessionStorage.removeItem("pendingPaymentPricing")
+          sessionStorage.removeItem("pendingPaymentListingTitle")
+          sessionStorage.setItem(
+            "bookingConfirmation",
+            JSON.stringify({
+              bookingId: finalizeResult.bookingId,
+              invoiceId: finalizeResult.invoiceId,
+              invoiceNumber: finalizeResult.invoiceNumber,
+              invoicePdfUrl: finalizeResult.invoicePdfUrl || "",
+              allocatedLabels: finalizeResult.allocatedLabels || [],
+              emailStatus: finalizeResult.emailStatus || "pending",
+              listingTitle: listing.title,
+              totalAmount: intentResult.pricing.totalAmount,
+              advancePaid: intentResult.pricing.amountToPay,
+            })
+          )
+          router.push("/checkout/success")
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Wallet booking failed")
+        } finally {
+          setConfirming(false)
+          setProcessing(false)
+        }
+        return
+      }
 
       const options = {
         key: intentResult.keyId,
@@ -387,6 +461,11 @@ export default function CheckoutPage() {
   }
 
   const finalTotal = (checkout?.totalAmount || 0) - couponDiscount
+  const normalizedWalletToUse = Math.min(
+    Math.max(0, walletToUse || 0),
+    walletBalance,
+    Math.max(0, finalTotal)
+  )
 
   if (loading) {
     return (
@@ -448,6 +527,7 @@ export default function CheckoutPage() {
       : listing.paymentMode === "advance_fixed"
         ? Math.min(listing.advanceAmount, finalTotal)
         : Math.round(finalTotal * (listing.advanceAmount / 100))
+  const gatewayToPay = Math.max(0, amountToPay - normalizedWalletToUse)
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -554,6 +634,7 @@ export default function CheckoutPage() {
                       onClick={() => {
                         setCouponCode("")
                         setCouponDiscount(0)
+                        setCouponCashbackPreview(0)
                         setCouponId(null)
                       }}
                     >
@@ -574,6 +655,29 @@ export default function CheckoutPage() {
                     {`Coupon applied! Saving \u20B9${couponDiscount.toLocaleString("en-IN")}`}
                   </p>
                 )}
+                {couponCashbackPreview > 0 && (
+                  <p className="mt-2 text-sm text-blue-600 font-medium">
+                    Cashback on successful booking: ₹{couponCashbackPreview.toLocaleString("en-IN")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Use Wallet</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Wallet balance: ₹{walletBalance.toLocaleString("en-IN")}
+                </p>
+                <Input
+                  type="number"
+                  min={0}
+                  max={Math.min(walletBalance, amountToPay)}
+                  value={walletToUse}
+                  onChange={(e) => setWalletToUse(Number(e.target.value || 0))}
+                />
               </CardContent>
             </Card>
 
@@ -642,6 +746,16 @@ export default function CheckoutPage() {
                     </div>
                   </>
                 )}
+                {normalizedWalletToUse > 0 && (
+                  <div className="flex justify-between text-emerald-600">
+                    <span>Wallet used</span>
+                    <span>-₹{normalizedWalletToUse.toLocaleString("en-IN")}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-medium">
+                  <span>Pay by Razorpay</span>
+                  <span>₹{gatewayToPay.toLocaleString("en-IN")}</span>
+                </div>
               </CardContent>
             </Card>
 
@@ -655,7 +769,7 @@ export default function CheckoutPage() {
                 ? "Confirming your booking..."
                 : processing
                   ? "Processing..."
-                : `Pay \u20B9${amountToPay.toLocaleString("en-IN")}`}
+                : `Pay \u20B9${gatewayToPay.toLocaleString("en-IN")}`}
             </Button>
           </div>
         </div>

@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getInvoiceDownloadUrl = exports.scheduledAutoCheckoutJob = exports.resendCheckoutEmail = exports.userCheckOut = exports.adminCheckOut = exports.adminCheckIn = exports.resendBookingConfirmationEmail = exports.processInvoiceCreated = exports.verifyPaymentAndConfirmBooking = exports.createSelfAttendance = void 0;
+exports.notifyDailyRewardAvailability = exports.monthlyLeaderboardReset = exports.adminBackfillReferralCodes = exports.adminRewardsAnalytics = exports.adminAdjustWallet = exports.adminUpdateRewardsConfig = exports.scratchRewardCard = exports.spinWheelReward = exports.claimDailyReward = exports.getRewardsDashboardData = exports.processReferralOnFirstPaidBooking = exports.initializeRewardsForUser = exports.getInvoiceDownloadUrl = exports.scheduledAutoCheckoutJob = exports.resendCheckoutEmail = exports.userCheckOut = exports.adminCheckOut = exports.adminCheckIn = exports.resendBookingConfirmationEmail = exports.processInvoiceCreated = exports.verifyPaymentAndConfirmBooking = exports.createSelfAttendance = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -48,6 +48,52 @@ const nodemailer_1 = __importDefault(require("nodemailer"));
 const razorpay_1 = __importDefault(require("razorpay"));
 admin.initializeApp();
 const db = admin.firestore();
+function pickWeightedValue(items) {
+    const normalized = items
+        .map((item) => ({
+        value: Number(item.value || 0),
+        weight: Math.max(0, Number(item.weight || 0)),
+    }))
+        .filter((item) => item.weight > 0);
+    if (normalized.length === 0)
+        return 0;
+    const total = normalized.reduce((sum, item) => sum + item.weight, 0);
+    const random = Math.random() * total;
+    let cursor = 0;
+    for (const item of normalized) {
+        cursor += item.weight;
+        if (random <= cursor)
+            return item.value;
+    }
+    return normalized[normalized.length - 1].value;
+}
+function randomCode(prefix, length = 8) {
+    const part = Math.random().toString(36).slice(2, 2 + length).toUpperCase();
+    return `${prefix}${part}`;
+}
+async function generateUniqueReferralCode(prefix = "ANGA") {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+        const candidate = randomCode(prefix);
+        const existing = await db
+            .collection("referrals")
+            .where("referralCode", "==", candidate)
+            .limit(1)
+            .get();
+        if (existing.empty)
+            return candidate;
+    }
+    return `${prefix}${Date.now().toString(36).toUpperCase()}`;
+}
+async function createInAppNotification(userId, title, message, type) {
+    await db.collection("notifications").add({
+        userId,
+        title,
+        message,
+        type,
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+}
 const TIMEZONE = "Asia/Kolkata";
 async function getRuntimeSecureConfig() {
     const [smtpSnap, razorpaySnap, settingsSnap] = await Promise.all([
@@ -93,6 +139,119 @@ async function getSmtpTransportFromConfig(config) {
         return null;
     }
     return transporter;
+}
+const DEFAULT_REWARDS_CONFIG = {
+    referral: {
+        enabled: true,
+        maxReferralsPerDay: 20,
+    },
+    scratchCard: {
+        rewards: [
+            { value: 1, weight: 40 },
+            { value: 5, weight: 25 },
+            { value: 10, weight: 20 },
+            { value: 20, weight: 10 },
+            { value: 50, weight: 4 },
+            { value: 100, weight: 1 },
+        ],
+    },
+    dailyReward: {
+        enabled: true,
+        claimIntervalHours: 24,
+        rewards: [
+            { value: 1, weight: 50 },
+            { value: 2, weight: 30 },
+            { value: 5, weight: 15 },
+            { value: 10, weight: 5 },
+        ],
+    },
+    spinWheel: {
+        enabled: true,
+        maxSpinsPerDay: 1,
+        rewards: [
+            { label: "₹1", type: "money", value: 1, weight: 30 },
+            { label: "₹2", type: "money", value: 2, weight: 20 },
+            { label: "₹5", type: "money", value: 5, weight: 15 },
+            { label: "₹10", type: "money", value: 10, weight: 10 },
+            { label: "₹20", type: "money", value: 20, weight: 5 },
+            { label: "Better luck next time", type: "none", value: 0, weight: 15 },
+            { label: "Extra scratch card", type: "scratch_card", value: 0, weight: 5 },
+        ],
+    },
+};
+async function getRewardsConfig() {
+    const snap = await db.collection("settings").doc("rewards").get();
+    const data = (snap.data() || {});
+    return {
+        referral: {
+            ...DEFAULT_REWARDS_CONFIG.referral,
+            ...(data.referral || {}),
+        },
+        scratchCard: {
+            rewards: Array.isArray(data.scratchCard?.rewards)
+                ? data.scratchCard.rewards
+                : DEFAULT_REWARDS_CONFIG.scratchCard.rewards,
+        },
+        dailyReward: {
+            ...DEFAULT_REWARDS_CONFIG.dailyReward,
+            ...(data.dailyReward || {}),
+            rewards: Array.isArray(data.dailyReward?.rewards)
+                ? data.dailyReward.rewards
+                : DEFAULT_REWARDS_CONFIG.dailyReward.rewards,
+        },
+        spinWheel: {
+            ...DEFAULT_REWARDS_CONFIG.spinWheel,
+            ...(data.spinWheel || {}),
+            rewards: Array.isArray(data.spinWheel?.rewards)
+                ? data.spinWheel.rewards
+                : DEFAULT_REWARDS_CONFIG.spinWheel.rewards,
+        },
+    };
+}
+async function getActiveCampaignEffects() {
+    const nowMs = Date.now();
+    const campaignsSnap = await db.collection("campaigns").where("isActive", "==", true).get();
+    const active = campaignsSnap.docs.map((d) => d.data() || {}).filter((campaign) => {
+        const start = Number(campaign.startDate?.toMillis?.() || 0);
+        const end = Number(campaign.endDate?.toMillis?.() || 0);
+        return (!start || start <= nowMs) && (!end || end >= nowMs);
+    });
+    return {
+        doubleReferralRewards: active.some((c) => Boolean(c.doubleReferralRewards)),
+        extraScratchCards: active.reduce((sum, c) => sum + Math.max(0, Number(c.extraScratchCards || 0)), 0),
+    };
+}
+async function createWalletTransactionInTxn(transaction, params) {
+    const walletRef = db.collection("userWallets").doc(params.userId);
+    const walletSnap = await transaction.get(walletRef);
+    const currentBalance = Number(walletSnap.data()?.balance || 0);
+    const nextBalance = params.type === "credit"
+        ? currentBalance + params.amount
+        : currentBalance - params.amount;
+    if (nextBalance < 0) {
+        throw new https_1.HttpsError("failed-precondition", "Insufficient wallet balance.");
+    }
+    transaction.set(walletRef, {
+        userId: params.userId,
+        balance: nextBalance,
+        totalEarned: Number(walletSnap.data()?.totalEarned || 0) +
+            (params.type === "credit" ? params.amount : 0),
+        totalSpent: Number(walletSnap.data()?.totalSpent || 0) +
+            (params.type === "debit" ? params.amount : 0),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: walletSnap.data()?.createdAt || admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    const txRef = db.collection("walletTransactions").doc();
+    transaction.set(txRef, {
+        userId: params.userId,
+        amount: params.amount,
+        type: params.type,
+        source: params.source,
+        description: params.description,
+        referenceId: params.referenceId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: params.createdBy,
+    });
 }
 function getNowParts(now = new Date()) {
     const formatter = new Intl.DateTimeFormat("en-US", {
@@ -261,19 +420,26 @@ function isSlotBased(listingType) {
         "local_tour",
     ].includes(listingType);
 }
-function buildCheckInOutSchedule(listingType, checkInDate, checkOutDate) {
-    const start = new Date(`${checkInDate}T12:00:00`);
-    const end = new Date(`${checkInDate}T11:00:00`);
+function parseTimeHHmm(value) {
+    if (typeof value === "string" && /^\d{1,2}:\d{2}$/.test(value.trim()))
+        return value.trim();
+    return "";
+}
+function buildCheckInOutSchedule(listingType, checkInDate, checkOutDate, listingTimes) {
+    const checkInTime = parseTimeHHmm(listingTimes?.defaultCheckInTime) || "12:00";
+    const checkOutTime = parseTimeHHmm(listingTimes?.defaultCheckOutTime) || "11:00";
+    const start = new Date(`${checkInDate}T${checkInTime}`);
+    const end = new Date(`${checkInDate}T${checkOutTime}`);
     if (isSlotBased(listingType)) {
-        const slotStart = new Date(`${checkInDate}T09:00:00`);
-        const slotEnd = new Date(`${checkInDate}T23:59:00`);
+        const slotStart = new Date(`${checkInDate}T${parseTimeHHmm(listingTimes?.defaultCheckInTime) || "09:00"}`);
+        const slotEnd = new Date(`${checkInDate}T${parseTimeHHmm(listingTimes?.defaultCheckOutTime) || "23:59"}`);
         return {
             scheduledCheckInAt: admin.firestore.Timestamp.fromDate(slotStart),
             scheduledCheckOutAt: admin.firestore.Timestamp.fromDate(slotEnd),
         };
     }
     if (checkOutDate) {
-        const parsed = new Date(`${checkOutDate}T11:00:00`);
+        const parsed = new Date(`${checkOutDate}T${checkOutTime}`);
         if (!Number.isNaN(parsed.getTime()) && parsed > start) {
             return {
                 scheduledCheckInAt: admin.firestore.Timestamp.fromDate(start),
@@ -544,17 +710,15 @@ async function sendConfirmationEmail(invoiceData, bookingData, forceResend = fal
         return "failed";
     const settingsSnap = await db.collection("settings").doc("global").get();
     const templateData = settingsSnap.data() || {};
-    const defaultSubject = "Booking Confirmed - {invoiceNumber}";
+    const defaultSubject = "Your Booking Confirmation - Anga Function Hall";
     const defaultBody = `
     <p>Hello {userName},</p>
-    <p>Your booking is confirmed.</p>
+    <p>Your booking at Anga Function Hall is confirmed.</p>
     <p><strong>Booking ID:</strong> {bookingId}</p>
-    <p><strong>Invoice Number:</strong> {invoiceNumber}</p>
-    <p><strong>Listing:</strong> {listingName}</p>
-    <p><strong>Date:</strong> {dates}</p>
-    <p><strong>Slot:</strong> {slots}</p>
-    <p><strong>Allocated:</strong> {allocatedUnits}</p>
-    <p><strong>Amount Paid:</strong> INR {amountPaid}</p>
+    <p><strong>Event Date:</strong> {dates}</p>
+    <p><strong>Hall/Room:</strong> {listingName}</p>
+    <p><strong>Booking Amount:</strong> INR {bookingAmount}</p>
+    <p><strong>Status:</strong> {bookingStatus}</p>
     <p><a href="{invoiceLink}">Download Invoice</a></p>
   `;
     const templateValues = {
@@ -566,6 +730,8 @@ async function sendConfirmationEmail(invoiceData, bookingData, forceResend = fal
         slots: String(bookingData.slotName || invoiceData.service?.slotName || ""),
         allocatedUnits: String((bookingData.allocatedResource?.labels || invoiceData.service?.allocatedLabels || []).join(", ")),
         amountPaid: Number(bookingData.advancePaid || invoiceData.breakdown?.paidAmount || 0).toFixed(2),
+        bookingAmount: Number(bookingData.totalAmount || invoiceData.breakdown?.totalAmount || 0).toFixed(2),
+        bookingStatus: String(bookingData.status || "confirmed"),
         invoiceLink: appBaseUrl
             ? `${appBaseUrl}/invoice/${invoiceData.id || bookingData.invoiceId || ""}`
             : "",
@@ -636,14 +802,16 @@ async function sendCheckoutEmail(bookingData, invoiceData) {
         return "failed";
     const settingsSnap = await db.collection("settings").doc("global").get();
     const settings = (settingsSnap.data() || {});
-    const defaultSubject = "Checkout Confirmed - {bookingId}";
-    const defaultBody = "<p>Hello {userName},</p><p>Your checkout is confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Invoice:</strong> {invoiceNumber}</p><p><strong>Listing:</strong> {listingName}</p><p><strong>Allocated:</strong> {allocation}</p><p><strong>Check-out time:</strong> {checkOutAt}</p><p>Thank you for staying with us.</p>";
+    const defaultSubject = "Thank You for Choosing Anga Function Hall";
+    const defaultBody = "<p>Hello {userName},</p><p>Your event is completed successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Event Date:</strong> {eventDate}</p><p><strong>Checkout Date:</strong> {checkOutAt}</p><p><strong>Total Amount Paid:</strong> INR {paidAmount}</p><p>Thank you for choosing Anga Function Hall.</p>";
     const templateValues = {
         userName: String(invoiceData.customer?.name || "Guest"),
         bookingId: String(bookingData.id || ""),
         invoiceNumber: String(bookingData.invoiceNumber || invoiceData.invoiceNumber || ""),
         listingName: String(bookingData.listingTitle || ""),
         allocation: String((bookingData.allocatedResource?.labels || []).join(", ")),
+        eventDate: String(invoiceData.service?.dateKey || ""),
+        paidAmount: Number(invoiceData.breakdown?.paidAmount || bookingData.advancePaid || 0).toFixed(2),
         checkOutAt: new Date().toLocaleString("en-IN"),
     };
     const subject = renderTemplate(String(settings.checkoutEmailSubjectTemplate || defaultSubject), templateValues);
@@ -673,6 +841,30 @@ async function sendCheckoutEmail(bookingData, invoiceData) {
             error: error instanceof Error ? error.message : "Checkout email failed",
         });
         return "failed";
+    }
+}
+async function sendRewardEmail(params) {
+    const [userSnap, runtimeConfig] = await Promise.all([
+        db.collection("users").doc(params.userId).get(),
+        getRuntimeSecureConfig(),
+    ]);
+    const toEmail = String(userSnap.data()?.email || "");
+    if (!toEmail)
+        return;
+    const smtpTransport = await getSmtpTransportFromConfig(runtimeConfig);
+    if (!smtpTransport)
+        return;
+    const from = `"${runtimeConfig.smtpFromName || "Anga Function Hall"}" <${runtimeConfig.smtpFromEmail || runtimeConfig.smtpUser}>`;
+    try {
+        await smtpTransport.sendMail({
+            from,
+            to: toEmail,
+            subject: params.subject,
+            html: params.html,
+        });
+    }
+    catch (error) {
+        logger.error("Reward email failed", { userId: params.userId, error });
     }
 }
 async function finalizeCheckout(params) {
@@ -749,12 +941,10 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
     }
     const uid = request.auth.uid;
     const payload = request.data;
-    if (!payload?.intentId ||
-        !payload?.razorpayOrderId ||
-        !payload?.razorpayPaymentId ||
-        !payload?.razorpaySignature) {
-        throw new https_1.HttpsError("invalid-argument", "Missing payment verification fields.");
+    if (!payload?.intentId) {
+        throw new https_1.HttpsError("invalid-argument", "intentId is required.");
     }
+    const walletOnly = Boolean(payload.walletOnly);
     const intentRef = db.collection("bookingIntents").doc(payload.intentId);
     const existingIntent = await intentRef.get();
     if (!existingIntent.exists) {
@@ -784,26 +974,33 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
             };
         }
     }
-    const razorpaySecret = runtimeConfig.razorpaySecretKey;
-    if (!runtimeConfig.razorpayKeyId || !razorpaySecret) {
-        throw new https_1.HttpsError("failed-precondition", "Razorpay keys are not configured.");
-    }
-    const rawPayload = `${payload.razorpayOrderId}|${payload.razorpayPaymentId}`;
-    const expected = (0, node_crypto_1.createHmac)("sha256", razorpaySecret).update(rawPayload).digest("hex");
-    const expectedBuffer = Buffer.from(expected, "utf8");
-    const receivedBuffer = Buffer.from(payload.razorpaySignature, "utf8");
-    const signatureOk = expectedBuffer.length === receivedBuffer.length &&
-        (0, node_crypto_1.timingSafeEqual)(expectedBuffer, receivedBuffer);
-    if (!signatureOk) {
-        throw new https_1.HttpsError("permission-denied", "Razorpay signature verification failed.");
-    }
-    const razorpay = new razorpay_1.default({
-        key_id: runtimeConfig.razorpayKeyId || "",
-        key_secret: razorpaySecret,
-    });
-    const order = await razorpay.orders.fetch(payload.razorpayOrderId);
-    if (!order || Number(order.amount) !== Number(existingIntentData.razorpayAmount || 0)) {
-        throw new https_1.HttpsError("failed-precondition", "Paid amount mismatch.");
+    if (!walletOnly) {
+        if (!payload?.razorpayOrderId ||
+            !payload?.razorpayPaymentId ||
+            !payload?.razorpaySignature) {
+            throw new https_1.HttpsError("invalid-argument", "Missing payment verification fields.");
+        }
+        const razorpaySecret = runtimeConfig.razorpaySecretKey;
+        if (!runtimeConfig.razorpayKeyId || !razorpaySecret) {
+            throw new https_1.HttpsError("failed-precondition", "Razorpay keys are not configured.");
+        }
+        const rawPayload = `${payload.razorpayOrderId}|${payload.razorpayPaymentId}`;
+        const expected = (0, node_crypto_1.createHmac)("sha256", razorpaySecret).update(rawPayload).digest("hex");
+        const expectedBuffer = Buffer.from(expected, "utf8");
+        const receivedBuffer = Buffer.from(payload.razorpaySignature, "utf8");
+        const signatureOk = expectedBuffer.length === receivedBuffer.length &&
+            (0, node_crypto_1.timingSafeEqual)(expectedBuffer, receivedBuffer);
+        if (!signatureOk) {
+            throw new https_1.HttpsError("permission-denied", "Razorpay signature verification failed.");
+        }
+        const razorpay = new razorpay_1.default({
+            key_id: runtimeConfig.razorpayKeyId || "",
+            key_secret: razorpaySecret,
+        });
+        const order = await razorpay.orders.fetch(payload.razorpayOrderId);
+        if (!order || Number(order.amount) !== Number(existingIntentData.razorpayAmount || 0)) {
+            throw new https_1.HttpsError("failed-precondition", "Paid amount mismatch.");
+        }
     }
     let transactionResult;
     try {
@@ -828,7 +1025,7 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
             if (intent.status !== "created" && intent.status !== "verified") {
                 throw new https_1.HttpsError("failed-precondition", "Booking intent is not payable.");
             }
-            if (String(intent.razorpayOrderId || "") !== payload.razorpayOrderId) {
+            if (!walletOnly && String(intent.razorpayOrderId || "") !== String(payload.razorpayOrderId || "")) {
                 throw new https_1.HttpsError("failed-precondition", "Order mismatch.");
             }
             const userRef = db.collection("users").doc(uid);
@@ -865,7 +1062,10 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
             const stayDateKeys = isSlotBased(String(listing.type || "function_hall"))
                 ? [dateKey]
                 : getStayDateKeys(checkInDate, checkOutDate);
-            const schedule = buildCheckInOutSchedule(String(listing.type || "function_hall"), checkInDate, checkOutDate);
+            const schedule = buildCheckInOutSchedule(String(listing.type || "function_hall"), checkInDate, checkOutDate, {
+                defaultCheckInTime: listing.defaultCheckInTime,
+                defaultCheckOutTime: listing.defaultCheckOutTime,
+            });
             const bookingRef = db.collection("bookings").doc();
             const paymentRef = db.collection("payments").doc();
             const invoiceRef = db.collection("invoices").doc();
@@ -899,19 +1099,44 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
             transaction.set(counterRef, { value: currentCounter }, { merge: true });
             const pricing = intent.pricing || {};
             const paymentStatus = Number(pricing.dueAmount || 0) > 0 ? "advance_paid" : "fully_paid";
+            const walletApplied = Math.max(0, Number(pricing.walletApplied || 0));
+            const cashbackAmount = Math.max(0, Number(pricing.cashbackAmount || 0));
+            if (walletApplied > 0) {
+                await createWalletTransactionInTxn(transaction, {
+                    userId: uid,
+                    amount: walletApplied,
+                    type: "debit",
+                    source: "booking_payment",
+                    description: `Wallet used for booking ${bookingRef.id}`,
+                    referenceId: bookingRef.id,
+                    createdBy: uid,
+                });
+            }
+            if (cashbackAmount > 0) {
+                await createWalletTransactionInTxn(transaction, {
+                    userId: uid,
+                    amount: cashbackAmount,
+                    type: "credit",
+                    source: "cashback",
+                    description: `Coupon cashback for booking ${bookingRef.id}`,
+                    referenceId: bookingRef.id,
+                    createdBy: "system:coupon",
+                });
+            }
             transaction.set(paymentRef, {
                 bookingId: bookingRef.id,
                 userId: uid,
                 listingId: intent.listingId,
                 branchId: intent.branchId,
                 amount: Number(pricing.amountToPay || 0),
+                walletAmount: walletApplied,
                 totalAmount: Number(pricing.totalAmount || 0),
                 currency: "INR",
                 status: "captured",
-                gateway: "razorpay",
+                gateway: walletOnly ? "wallet" : "razorpay",
                 verified: true,
-                razorpayOrderId: payload.razorpayOrderId,
-                razorpayPaymentId: payload.razorpayPaymentId,
+                razorpayOrderId: walletOnly ? "" : String(payload.razorpayOrderId || ""),
+                razorpayPaymentId: walletOnly ? "" : String(payload.razorpayPaymentId || ""),
                 createdAt: now,
                 updatedAt: now,
             });
@@ -940,12 +1165,12 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
                     taxAmount: Number(pricing.taxAmount || 0),
                     serviceFee: Number(pricing.serviceFee || 0),
                     totalAmount: Number(pricing.totalAmount || 0),
-                    paidAmount: Number(pricing.amountToPay || 0),
+                    paidAmount: Number(pricing.amountToPay || 0) + walletApplied,
                     dueAmount: Number(pricing.dueAmount || 0),
                 },
                 payment: {
-                    razorpayOrderId: payload.razorpayOrderId,
-                    razorpayPaymentId: payload.razorpayPaymentId,
+                    razorpayOrderId: walletOnly ? "" : String(payload.razorpayOrderId || ""),
+                    razorpayPaymentId: walletOnly ? "" : String(payload.razorpayPaymentId || ""),
                 },
                 emailStatus: "pending",
                 createdAt: now,
@@ -977,12 +1202,14 @@ exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => 
                 serviceFee: Number(pricing.serviceFee || 0),
                 totalAmount: Number(pricing.totalAmount || 0),
                 advancePaid: Number(pricing.amountToPay || 0),
+                walletSpent: walletApplied,
                 dueAmount: Number(pricing.dueAmount || 0),
+                cashbackAmount,
                 status: "confirmed",
                 paymentStatus,
                 paymentVerified: true,
-                razorpayOrderId: payload.razorpayOrderId,
-                razorpayPaymentId: payload.razorpayPaymentId,
+                razorpayOrderId: walletOnly ? "" : String(payload.razorpayOrderId || ""),
+                razorpayPaymentId: walletOnly ? "" : String(payload.razorpayPaymentId || ""),
                 invoiceId: invoiceRef.id,
                 invoiceNumber,
                 allocatedResource: allocation,
@@ -1304,7 +1531,7 @@ exports.scheduledAutoCheckoutJob = (0, scheduler_1.onSchedule)("every 10 minutes
     const due = snap.docs.filter((docSnap) => {
         const data = docSnap.data() || {};
         const status = String(data.status || "");
-        if (!["confirmed", "checked_in"].includes(status))
+        if (status !== "checked_in")
             return false;
         const scheduled = data.scheduledCheckOutAt?.toDate?.();
         if (!scheduled)
@@ -1387,5 +1614,649 @@ exports.getInvoiceDownloadUrl = (0, https_1.onCall)(async (request) => {
         const encodedPath = encodeURIComponent(pdfPath);
         const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${token}`;
         return { ok: true, url, source: "token_fallback" };
+    }
+});
+exports.initializeRewardsForUser = (0, firestore_1.onDocumentCreated)("users/{userId}", async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    const userId = event.params.userId;
+    const user = snap.data() || {};
+    const referralCode = await generateUniqueReferralCode("ANGA");
+    const referredByCode = String(user.referredByCode || "").trim().toUpperCase();
+    let notifyReferrerId = "";
+    await db.runTransaction(async (transaction) => {
+        const referralRef = db.collection("referrals").doc(userId);
+        const walletRef = db.collection("userWallets").doc(userId);
+        const referralSnap = await transaction.get(referralRef);
+        const walletSnap = await transaction.get(walletRef);
+        if (!referralSnap.exists) {
+            transaction.set(referralRef, {
+                userId,
+                referralCode,
+                referredByCode: referredByCode || null,
+                referredByUserId: null,
+                pendingReferrals: 0,
+                successfulReferrals: 0,
+                totalReferrals: 0,
+                rewardEarned: 0,
+                lifetimeSuccessfulReferrals: 0,
+                lifetimeTotalReferrals: 0,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+        if (referredByCode) {
+            const referrerQuerySnap = await transaction.get(db.collection("referrals").where("referralCode", "==", referredByCode).limit(1));
+            if (!referrerQuerySnap.empty) {
+                const referrerDoc = referrerQuerySnap.docs[0];
+                if (referrerDoc.id !== userId) {
+                    notifyReferrerId = referrerDoc.id;
+                    transaction.set(referrerDoc.ref, {
+                        totalReferrals: Number(referrerDoc.data()?.totalReferrals || 0) + 1,
+                        lifetimeTotalReferrals: Number(referrerDoc.data()?.lifetimeTotalReferrals || 0) + 1,
+                        pendingReferrals: Number(referrerDoc.data()?.pendingReferrals || 0) + 1,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                    transaction.set(referralRef, {
+                        referredByUserId: referrerDoc.id,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                }
+            }
+        }
+        transaction.set(walletRef, {
+            userId,
+            balance: Number(walletSnap.data()?.balance || 0),
+            totalEarned: Number(walletSnap.data()?.totalEarned || 0),
+            totalSpent: Number(walletSnap.data()?.totalSpent || 0),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    });
+    if (notifyReferrerId) {
+        await createInAppNotification(notifyReferrerId, "New referral signup", "A new user has signed up using your referral code.", "referral_signup");
+        await sendRewardEmail({
+            userId: notifyReferrerId,
+            subject: "New referral signup",
+            html: "<p>Someone signed up using your referral code. Reward unlocks after their first paid booking.</p>",
+        });
+    }
+});
+exports.processReferralOnFirstPaidBooking = (0, firestore_1.onDocumentCreated)("bookings/{bookingId}", async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    const bookingId = event.params.bookingId;
+    const booking = snap.data() || {};
+    const userId = String(booking.userId || "");
+    if (!userId)
+        return;
+    if (!["confirmed", "checked_in", "checked_out", "completed"].includes(String(booking.status || "")))
+        return;
+    const rewardsConfig = await getRewardsConfig();
+    const campaign = await getActiveCampaignEffects();
+    if (!rewardsConfig.referral.enabled)
+        return;
+    const userBookingsSnap = await db
+        .collection("bookings")
+        .where("userId", "==", userId)
+        .where("status", "in", ["confirmed", "checked_in", "checked_out", "completed"])
+        .limit(2)
+        .get();
+    if (userBookingsSnap.size > 1)
+        return;
+    const referredUserReferralRef = db.collection("referrals").doc(userId);
+    let rewardedReferrerId = "";
+    await db.runTransaction(async (transaction) => {
+        const referredSnap = await transaction.get(referredUserReferralRef);
+        if (!referredSnap.exists)
+            return;
+        const referred = referredSnap.data() || {};
+        if (referred.firstPaidBookingId)
+            return;
+        const referredByCode = String(referred.referredByCode || "");
+        if (!referredByCode)
+            return;
+        const referrerSnap = await transaction.get(db.collection("referrals").where("referralCode", "==", referredByCode).limit(1));
+        if (referrerSnap.empty)
+            return;
+        const referrerDoc = referrerSnap.docs[0];
+        const referrerId = referrerDoc.id;
+        rewardedReferrerId = referrerId;
+        if (referrerId === userId)
+            return;
+        const [referrerUserSnap, referredUserSnap] = await Promise.all([
+            transaction.get(db.collection("users").doc(referrerId)),
+            transaction.get(db.collection("users").doc(userId)),
+        ]);
+        const referrerDeviceId = String(referrerUserSnap.data()?.deviceId || "");
+        const referredDeviceId = String(referredUserSnap.data()?.deviceId || "");
+        if (referrerDeviceId && referredDeviceId && referrerDeviceId === referredDeviceId) {
+            return;
+        }
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const dailyCountRef = db.collection("referralDailyStats").doc(`${referrerId}_${todayKey}`);
+        const dailyCountSnap = await transaction.get(dailyCountRef);
+        const currentDaily = Number(dailyCountSnap.data()?.count || 0);
+        if (currentDaily >= Math.max(1, rewardsConfig.referral.maxReferralsPerDay))
+            return;
+        transaction.set(referredUserReferralRef, {
+            referredByUserId: referrerId,
+            firstPaidBookingId: bookingId,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        transaction.set(referrerDoc.ref, {
+            totalReferrals: Number(referrerDoc.data()?.totalReferrals || 0) + 1,
+            successfulReferrals: Number(referrerDoc.data()?.successfulReferrals || 0) + 1,
+            lifetimeSuccessfulReferrals: Number(referrerDoc.data()?.lifetimeSuccessfulReferrals || 0) + 1,
+            pendingReferrals: Math.max(0, Number(referrerDoc.data()?.pendingReferrals || 0) - 1),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        transaction.set(dailyCountRef, {
+            referrerId,
+            day: todayKey,
+            count: currentDaily + 1,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        const cardsToCreate = 1 + (campaign.doubleReferralRewards ? 1 : 0) + campaign.extraScratchCards;
+        for (let index = 0; index < cardsToCreate; index += 1) {
+            const cardRef = db.collection("scratchCards").doc();
+            transaction.set(cardRef, {
+                userId: referrerId,
+                referralBookingId: bookingId,
+                status: "available",
+                rewardAmount: null,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+    });
+    if (rewardedReferrerId) {
+        await createInAppNotification(rewardedReferrerId, "Referral successful", "A referred user completed first paid booking. Scratch card unlocked.", "referral_success");
+        await sendRewardEmail({
+            userId: rewardedReferrerId,
+            subject: "Referral successful - scratch card unlocked",
+            html: "<p>Your referral has completed first paid booking. A scratch card is now available in your dashboard.</p>",
+        });
+    }
+});
+exports.getRewardsDashboardData = (0, https_1.onCall)({ cors: true }, async (request) => {
+    if (!request.auth?.uid)
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    const uid = request.auth.uid;
+    const [walletSnap, referralSnap, txSnap, cardsSnap, rewardsConfig, usersSnap, lbSnap, dailySnap, spinSnap] = await Promise.all([
+        db.collection("userWallets").doc(uid).get(),
+        db.collection("referrals").doc(uid).get(),
+        db.collection("walletTransactions").where("userId", "==", uid).limit(20).get(),
+        db.collection("scratchCards").where("userId", "==", uid).limit(30).get(),
+        getRewardsConfig(),
+        db.collection("users").get(),
+        db.collection("referrals").orderBy("successfulReferrals", "desc").limit(10).get(),
+        db.collection("dailyRewards").doc(uid).get(),
+        db.collection("spinUsage").doc(`${uid}_${new Date().toISOString().slice(0, 10)}`).get(),
+    ]);
+    const referralCode = String(referralSnap.data()?.referralCode || "");
+    const appBaseUrl = (await getRuntimeSecureConfig()).appBaseUrl || "https://angafunctionhall.com";
+    const userMap = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
+    const nextClaimAtTs = dailySnap.data()?.lastClaimAt?.toMillis?.()
+        ? Number(dailySnap.data()?.lastClaimAt.toMillis()) +
+            rewardsConfig.dailyReward.claimIntervalHours * 60 * 60 * 1000
+        : null;
+    return {
+        wallet: {
+            balance: Number(walletSnap.data()?.balance || 0),
+            totalEarned: Number(walletSnap.data()?.totalEarned || 0),
+            totalSpent: Number(walletSnap.data()?.totalSpent || 0),
+        },
+        referral: {
+            referralCode,
+            referralLink: `${appBaseUrl}/signup?ref=${encodeURIComponent(referralCode)}`,
+            totalReferrals: Number(referralSnap.data()?.totalReferrals || 0),
+            pendingReferrals: Number(referralSnap.data()?.pendingReferrals || 0),
+            successfulReferrals: Number(referralSnap.data()?.successfulReferrals || 0),
+            rewardEarned: Number(referralSnap.data()?.rewardEarned || 0),
+        },
+        scratchCards: cardsSnap.docs.map((docSnap) => {
+            const data = docSnap.data() || {};
+            return {
+                id: docSnap.id,
+                status: String(data.status || "locked"),
+                rewardAmount: data.rewardAmount === null ? null : Number(data.rewardAmount || 0),
+                createdAt: Number(data.createdAt?.toMillis?.() || 0),
+            };
+        }),
+        recentTransactions: txSnap.docs.map((docSnap) => {
+            const data = docSnap.data() || {};
+            return {
+                id: docSnap.id,
+                amount: Number(data.amount || 0),
+                type: String(data.type || "credit"),
+                source: String(data.source || ""),
+                description: String(data.description || ""),
+                createdAt: Number(data.createdAt?.toMillis?.() || 0),
+            };
+        }),
+        dailyReward: {
+            enabled: rewardsConfig.dailyReward.enabled,
+            claimIntervalHours: rewardsConfig.dailyReward.claimIntervalHours,
+            canClaim: rewardsConfig.dailyReward.enabled &&
+                (!nextClaimAtTs || Date.now() >= nextClaimAtTs),
+            nextClaimAt: nextClaimAtTs,
+        },
+        spin: {
+            enabled: rewardsConfig.spinWheel.enabled,
+            spinsLeftToday: Math.max(0, rewardsConfig.spinWheel.maxSpinsPerDay - Number(spinSnap.data()?.count || 0)),
+            maxSpinsPerDay: rewardsConfig.spinWheel.maxSpinsPerDay,
+        },
+        leaderboard: lbSnap.docs.map((docSnap, index) => {
+            const data = docSnap.data() || {};
+            return {
+                rank: index + 1,
+                userId: docSnap.id,
+                displayName: String(userMap.get(docSnap.id)?.displayName || "User"),
+                successfulReferrals: Number(data.successfulReferrals || 0),
+                totalRewards: Number(data.rewardEarned || 0),
+            };
+        }),
+    };
+});
+exports.claimDailyReward = (0, https_1.onCall)({ cors: true }, async (request) => {
+    if (!request.auth?.uid)
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    const uid = request.auth.uid;
+    const rewardsConfig = await getRewardsConfig();
+    if (!rewardsConfig.dailyReward.enabled) {
+        throw new https_1.HttpsError("failed-precondition", "Daily reward is disabled.");
+    }
+    const amount = pickWeightedValue(rewardsConfig.dailyReward.rewards);
+    let balance = 0;
+    await db.runTransaction(async (transaction) => {
+        const dailyRef = db.collection("dailyRewards").doc(uid);
+        const dailySnap = await transaction.get(dailyRef);
+        const lastClaim = Number(dailySnap.data()?.lastClaimAt?.toMillis?.() || 0);
+        const minNext = lastClaim + rewardsConfig.dailyReward.claimIntervalHours * 60 * 60 * 1000;
+        if (lastClaim > 0 && Date.now() < minNext) {
+            throw new https_1.HttpsError("failed-precondition", "Daily reward is not ready yet.");
+        }
+        await createWalletTransactionInTxn(transaction, {
+            userId: uid,
+            amount,
+            type: "credit",
+            source: "daily_login",
+            description: "Daily login reward",
+            referenceId: `daily_${Date.now()}`,
+            createdBy: uid,
+        });
+        const walletSnap = await transaction.get(db.collection("userWallets").doc(uid));
+        balance = Number(walletSnap.data()?.balance || 0) + amount;
+        transaction.set(dailyRef, {
+            userId: uid,
+            lastClaimAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    });
+    await createInAppNotification(uid, "Daily reward claimed", `₹${amount} added to your wallet.`, "daily_reward");
+    await sendRewardEmail({
+        userId: uid,
+        subject: "Daily reward credited",
+        html: `<p>Your daily reward of INR ${amount} has been credited to your wallet.</p>`,
+    });
+    return { ok: true, amount, balance };
+});
+exports.spinWheelReward = (0, https_1.onCall)({ cors: true }, async (request) => {
+    if (!request.auth?.uid)
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    const uid = request.auth.uid;
+    const rewardsConfig = await getRewardsConfig();
+    if (!rewardsConfig.spinWheel.enabled) {
+        throw new https_1.HttpsError("failed-precondition", "Spin wheel is disabled.");
+    }
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const usageRef = db.collection("spinUsage").doc(`${uid}_${dayKey}`);
+    const roll = pickWeightedValue(rewardsConfig.spinWheel.rewards.map((item, index) => ({ value: index + 1, weight: item.weight }))) - 1;
+    const selected = rewardsConfig.spinWheel.rewards[Math.max(0, roll)] || {
+        label: "Better luck next time",
+        type: "none",
+        value: 0,
+        weight: 100,
+    };
+    let balance = 0;
+    await db.runTransaction(async (transaction) => {
+        const usageSnap = await transaction.get(usageRef);
+        const count = Number(usageSnap.data()?.count || 0);
+        if (count >= rewardsConfig.spinWheel.maxSpinsPerDay) {
+            throw new https_1.HttpsError("failed-precondition", "No spins left for today.");
+        }
+        transaction.set(usageRef, {
+            userId: uid,
+            day: dayKey,
+            count: count + 1,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        if (selected.type === "money" && Number(selected.value || 0) > 0) {
+            await createWalletTransactionInTxn(transaction, {
+                userId: uid,
+                amount: Number(selected.value || 0),
+                type: "credit",
+                source: "spin_wheel",
+                description: `Spin reward: ${selected.label}`,
+                referenceId: `spin_${dayKey}`,
+                createdBy: uid,
+            });
+            const walletSnap = await transaction.get(db.collection("userWallets").doc(uid));
+            balance = Number(walletSnap.data()?.balance || 0) + Number(selected.value || 0);
+        }
+        else if (selected.type === "scratch_card") {
+            transaction.set(db.collection("scratchCards").doc(), {
+                userId: uid,
+                status: "available",
+                rewardAmount: null,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                source: "spin",
+            });
+            const walletSnap = await transaction.get(db.collection("userWallets").doc(uid));
+            balance = Number(walletSnap.data()?.balance || 0);
+        }
+        else {
+            const walletSnap = await transaction.get(db.collection("userWallets").doc(uid));
+            balance = Number(walletSnap.data()?.balance || 0);
+        }
+    });
+    await createInAppNotification(uid, "Spin result", selected.label, "spin");
+    await sendRewardEmail({
+        userId: uid,
+        subject: "Spin reward update",
+        html: `<p>Your Spin & Win result: <strong>${selected.label}</strong>.</p>`,
+    });
+    return {
+        ok: true,
+        rewardType: selected.type,
+        label: selected.label,
+        amount: Number(selected.value || 0),
+        balance,
+    };
+});
+exports.scratchRewardCard = (0, https_1.onCall)({ cors: true }, async (request) => {
+    if (!request.auth?.uid)
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    const uid = request.auth.uid;
+    const cardId = String(request.data?.cardId || "");
+    if (!cardId)
+        throw new https_1.HttpsError("invalid-argument", "cardId is required.");
+    const rewardsConfig = await getRewardsConfig();
+    const amount = pickWeightedValue(rewardsConfig.scratchCard.rewards);
+    let balance = 0;
+    await db.runTransaction(async (transaction) => {
+        const cardRef = db.collection("scratchCards").doc(cardId);
+        const cardSnap = await transaction.get(cardRef);
+        if (!cardSnap.exists)
+            throw new https_1.HttpsError("not-found", "Scratch card not found.");
+        const card = cardSnap.data() || {};
+        if (String(card.userId || "") !== uid)
+            throw new https_1.HttpsError("permission-denied", "Not allowed.");
+        if (String(card.status || "") === "scratched") {
+            throw new https_1.HttpsError("already-exists", "Scratch card already used.");
+        }
+        transaction.set(cardRef, {
+            status: "scratched",
+            rewardAmount: amount,
+            scratchedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        await createWalletTransactionInTxn(transaction, {
+            userId: uid,
+            amount,
+            type: "credit",
+            source: "scratch_card",
+            description: "Scratch card reward",
+            referenceId: cardId,
+            createdBy: uid,
+        });
+        const walletSnap = await transaction.get(db.collection("userWallets").doc(uid));
+        balance = Number(walletSnap.data()?.balance || 0) + amount;
+    });
+    await createInAppNotification(uid, "Scratch card unlocked", `₹${amount} added to your wallet.`, "scratch");
+    await sendRewardEmail({
+        userId: uid,
+        subject: "Scratch card reward credited",
+        html: `<p>You scratched a card and won INR ${amount}. The amount was added to your wallet.</p>`,
+    });
+    return { ok: true, amount, balance };
+});
+exports.adminUpdateRewardsConfig = (0, https_1.onCall)({ cors: true }, async (request) => {
+    if (!request.auth?.uid)
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    const adminUser = await db.collection("users").doc(request.auth.uid).get();
+    if (String(adminUser.data()?.role || "") !== "admin") {
+        throw new https_1.HttpsError("permission-denied", "Only admin can update rewards config.");
+    }
+    const payload = (request.data?.payload || {});
+    await db.collection("settings").doc("rewards").set(payload, { merge: true });
+    return { ok: true };
+});
+exports.adminAdjustWallet = (0, https_1.onCall)({ cors: true }, async (request) => {
+    if (!request.auth?.uid)
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    const adminUser = await db.collection("users").doc(request.auth.uid).get();
+    if (String(adminUser.data()?.role || "") !== "admin") {
+        throw new https_1.HttpsError("permission-denied", "Only admin can adjust wallet.");
+    }
+    const targetUserId = String(request.data?.targetUserId || "");
+    const amount = Number(request.data?.amount || 0);
+    const reason = String(request.data?.reason || "").trim();
+    if (!targetUserId || !Number.isFinite(amount) || amount === 0 || !reason) {
+        throw new https_1.HttpsError("invalid-argument", "targetUserId, amount and reason are required.");
+    }
+    await db.runTransaction(async (transaction) => {
+        await createWalletTransactionInTxn(transaction, {
+            userId: targetUserId,
+            amount: Math.abs(amount),
+            type: amount > 0 ? "credit" : "debit",
+            source: "admin_adjustment",
+            description: reason,
+            referenceId: `admin_${Date.now()}`,
+            createdBy: request.auth.uid,
+        });
+    });
+    await createInAppNotification(targetUserId, "Wallet updated", reason, "wallet_adjustment");
+    return { ok: true };
+});
+exports.adminRewardsAnalytics = (0, https_1.onCall)({ cors: true }, async (request) => {
+    if (!request.auth?.uid)
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    const adminUser = await db.collection("users").doc(request.auth.uid).get();
+    if (String(adminUser.data()?.role || "") !== "admin") {
+        throw new https_1.HttpsError("permission-denied", "Only admin can view rewards analytics.");
+    }
+    const [usersSnap, bookingsSnap, walletTxSnap, referralsSnap, dailySnap, spinSnap] = await Promise.all([
+        db.collection("users").get(),
+        db.collection("bookings").get(),
+        db.collection("walletTransactions").get(),
+        db.collection("referrals").get(),
+        db.collection("dailyRewards").get(),
+        db.collection("spinUsage").get(),
+    ]);
+    const totalReferralRewards = referralsSnap.docs.reduce((sum, docSnap) => sum + Number(docSnap.data()?.rewardEarned || 0), 0);
+    const usersMap = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
+    const topReferrers = referralsSnap.docs
+        .map((docSnap) => ({
+        userId: docSnap.id,
+        successfulReferrals: Number(docSnap.data()?.successfulReferrals || 0),
+    }))
+        .sort((a, b) => b.successfulReferrals - a.successfulReferrals)
+        .slice(0, 10)
+        .map((item) => ({
+        ...item,
+        displayName: String(usersMap.get(item.userId)?.displayName || "User"),
+    }));
+    return {
+        ok: true,
+        totalUsers: usersSnap.size,
+        totalBookings: bookingsSnap.size,
+        totalReferralRewards,
+        walletTransactions: walletTxSnap.size,
+        dailyRewardUsage: dailySnap.size,
+        spinUsage: spinSnap.size,
+        topReferrers,
+    };
+});
+exports.adminBackfillReferralCodes = (0, https_1.onCall)({ cors: true }, async (request) => {
+    if (!request.auth?.uid) {
+        throw new https_1.HttpsError("unauthenticated", "Please login first.");
+    }
+    const adminUser = await db.collection("users").doc(request.auth.uid).get();
+    if (String(adminUser.data()?.role || "") !== "admin") {
+        throw new https_1.HttpsError("permission-denied", "Only admin can run backfill.");
+    }
+    const limit = Math.min(300, Math.max(1, Number(request.data?.limit || 100)));
+    const startAfterUserId = String(request.data?.startAfterUserId || "").trim();
+    let userQuery = db
+        .collection("users")
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .limit(limit);
+    if (startAfterUserId) {
+        userQuery = userQuery.startAfter(startAfterUserId);
+    }
+    const usersSnap = await userQuery.get();
+    let processed = 0;
+    let created = 0;
+    let updatedMissingCode = 0;
+    let walletCreated = 0;
+    for (const userDoc of usersSnap.docs) {
+        processed += 1;
+        const userId = userDoc.id;
+        const user = userDoc.data() || {};
+        const referredByCode = String(user.referredByCode || "").trim().toUpperCase();
+        const referralRef = db.collection("referrals").doc(userId);
+        const walletRef = db.collection("userWallets").doc(userId);
+        const [referralSnap, walletSnap] = await Promise.all([referralRef.get(), walletRef.get()]);
+        if (!referralSnap.exists) {
+            const referralCode = await generateUniqueReferralCode("ANGA");
+            await referralRef.set({
+                userId,
+                referralCode,
+                referredByCode: referredByCode || null,
+                referredByUserId: null,
+                pendingReferrals: 0,
+                successfulReferrals: 0,
+                totalReferrals: 0,
+                rewardEarned: 0,
+                lifetimeSuccessfulReferrals: 0,
+                lifetimeTotalReferrals: 0,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            created += 1;
+        }
+        else if (!String(referralSnap.data()?.referralCode || "").trim()) {
+            const referralCode = await generateUniqueReferralCode("ANGA");
+            await referralRef.set({
+                referralCode,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            updatedMissingCode += 1;
+        }
+        if (!walletSnap.exists) {
+            await walletRef.set({
+                userId,
+                balance: 0,
+                totalEarned: 0,
+                totalSpent: 0,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            walletCreated += 1;
+        }
+    }
+    const lastDoc = usersSnap.docs[usersSnap.docs.length - 1];
+    return {
+        ok: true,
+        processed,
+        created,
+        updatedMissingCode,
+        walletCreated,
+        hasMore: usersSnap.size === limit,
+        nextCursor: lastDoc ? lastDoc.id : "",
+    };
+});
+exports.monthlyLeaderboardReset = (0, scheduler_1.onSchedule)({
+    schedule: "0 1 1 * *",
+    timeZone: TIMEZONE,
+}, async () => {
+    const rewardsSettings = (await db.collection("settings").doc("rewards").get()).data() || {};
+    const bonusRewards = Array.isArray(rewardsSettings.leaderboardBonusRewards)
+        ? rewardsSettings.leaderboardBonusRewards
+        : [500, 300, 100];
+    const monthKey = new Date().toISOString().slice(0, 7);
+    const topSnap = await db
+        .collection("referrals")
+        .orderBy("successfulReferrals", "desc")
+        .limit(Math.max(3, bonusRewards.length))
+        .get();
+    for (let index = 0; index < topSnap.docs.length; index += 1) {
+        const docSnap = topSnap.docs[index];
+        const bonus = Number(bonusRewards[index] || 0);
+        const successful = Number(docSnap.data()?.successfulReferrals || 0);
+        if (bonus > 0 && successful > 0) {
+            await db.runTransaction(async (transaction) => {
+                await createWalletTransactionInTxn(transaction, {
+                    userId: docSnap.id,
+                    amount: bonus,
+                    type: "credit",
+                    source: "leaderboard_bonus",
+                    description: `Leaderboard bonus rank ${index + 1} (${monthKey})`,
+                    referenceId: `${monthKey}_${index + 1}`,
+                    createdBy: "system:leaderboard",
+                });
+                transaction.set(db.collection("leaderboardHistory").doc(`${monthKey}_${docSnap.id}`), {
+                    monthKey,
+                    userId: docSnap.id,
+                    rank: index + 1,
+                    bonus,
+                    successfulReferrals: successful,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true });
+            });
+            await createInAppNotification(docSnap.id, "Leaderboard bonus credited", `You received INR ${bonus} for rank ${index + 1} in referral leaderboard.`, "leaderboard_bonus");
+            await sendRewardEmail({
+                userId: docSnap.id,
+                subject: "Leaderboard bonus credited",
+                html: `<p>Congratulations! You earned INR ${bonus} leaderboard bonus for rank ${index + 1}.</p>`,
+            });
+        }
+    }
+    const allReferrals = await db.collection("referrals").get();
+    const resetBatch = db.batch();
+    allReferrals.docs.forEach((docSnap) => {
+        resetBatch.set(docSnap.ref, {
+            successfulReferrals: 0,
+            rewardEarned: 0,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    });
+    await resetBatch.commit();
+});
+exports.notifyDailyRewardAvailability = (0, scheduler_1.onSchedule)("every 2 hours", async () => {
+    const rewardsConfig = await getRewardsConfig();
+    if (!rewardsConfig.dailyReward.enabled)
+        return;
+    const usersSnap = await db.collection("users").get();
+    for (const userDoc of usersSnap.docs) {
+        const uid = userDoc.id;
+        const dailyRef = db.collection("dailyRewards").doc(uid);
+        const dailySnap = await dailyRef.get();
+        const lastClaim = Number(dailySnap.data()?.lastClaimAt?.toMillis?.() || 0);
+        const lastNotified = Number(dailySnap.data()?.lastAvailableNotifiedAt?.toMillis?.() || 0);
+        const intervalMs = rewardsConfig.dailyReward.claimIntervalHours * 60 * 60 * 1000;
+        const now = Date.now();
+        const available = !lastClaim || now - lastClaim >= intervalMs;
+        const shouldNotify = available && (!lastNotified || now - lastNotified >= intervalMs / 2);
+        if (!shouldNotify)
+            continue;
+        await createInAppNotification(uid, "Daily reward available", "Your daily wallet reward is ready to claim.", "daily_reward_available");
+        await dailyRef.set({
+            userId: uid,
+            lastAvailableNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
     }
 });

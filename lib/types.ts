@@ -234,10 +234,15 @@ export interface AppUser {
   email: string
   displayName: string
   phone: string
+  mobileNumber?: string
   photoURL: string
   favorites: string[]
   isBlocked: boolean
   role?: "user" | "admin" | "receptionist"
+  referralCode?: string
+  referredByCode?: string | null
+  referredBy?: string | null
+  referrerName?: string | null
   createdAt: Timestamp
 }
 
@@ -262,8 +267,12 @@ export interface AvailabilityLock {
 export interface Coupon {
   id: string
   code: string
+  rewardMode?: "discount" | "cashback"
   discountType: "flat" | "percent"
   discountValue: number
+  cashbackType?: "flat" | "percent"
+  cashbackValue?: number
+  maxCashbackAmount?: number
   minOrderAmount: number
   maxUses: number
   usedCount: number
@@ -497,6 +506,55 @@ export interface GalleryItem {
   sortOrder?: number
   createdAt: Timestamp
   updatedAt: Timestamp
+}
+
+// =====================
+// Rewards + Referral
+// =====================
+export type WalletTransactionSource =
+  | "referral_reward"
+  | "scratch_card"
+  | "spin_wheel"
+  | "daily_login"
+  | "cashback"
+  | "admin_adjustment"
+  | "booking_payment"
+  | "leaderboard_bonus"
+
+export interface UserWallet {
+  id: string
+  userId: string
+  balance: number
+  totalEarned: number
+  totalSpent: number
+  updatedAt: Timestamp
+  createdAt: Timestamp
+}
+
+export interface WalletTransaction {
+  id: string
+  userId: string
+  amount: number
+  type: "credit" | "debit"
+  source: WalletTransactionSource
+  description: string
+  referenceId: string
+  createdAt: Timestamp
+  createdBy: string
+}
+
+export interface ReferralProfile {
+  id: string
+  userId: string
+  referralCode: string
+  referredByCode?: string | null
+  referredByUserId?: string | null
+  pendingReferrals: number
+  successfulReferrals: number
+  totalReferrals: number
+  rewardEarned: number
+  updatedAt: Timestamp
+  createdAt: Timestamp
 }
 
 // =====================

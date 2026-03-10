@@ -16,6 +16,7 @@ export interface BookingIntentInput {
   unitsBooked: number
   selectedAddons: IntentAddonInput[]
   couponCode?: string
+  walletToUse?: number
 }
 
 export interface PricingBreakdown {
@@ -27,6 +28,9 @@ export interface PricingBreakdown {
   totalAmount: number
   amountToPay: number
   dueAmount: number
+  walletApplied?: number
+  gatewayAmount?: number
+  cashbackAmount?: number
 }
 
 function isSlotBasedListing(type: string) {

@@ -1,6 +1,7 @@
 import { SignupForm } from "@/components/auth/signup-form"
 import { SiteLogo } from "@/components/layout/site-logo"
 import Link from "next/link"
+import { Suspense } from "react"
 
 export default function SignupPage() {
   return (
@@ -32,7 +33,9 @@ export default function SignupPage() {
               <SiteLogo />
             </Link>
           </div>
-          <SignupForm />
+          <Suspense fallback={<div className="text-sm text-muted-foreground">Loading...</div>}>
+            <SignupForm />
+          </Suspense>
         </div>
       </div>
     </div>

@@ -17,6 +17,10 @@ import {
   CreditCard,
   Users,
   Settings,
+  Gift,
+  Trophy,
+  Wallet,
+  CircleDot,
 } from "lucide-react"
 
 export default function DashboardLayout({
@@ -110,6 +114,10 @@ export default function DashboardLayout({
 
   const sidebarLinks = [
     { href: "/dashboard", label: "My Bookings", icon: CalendarDays },
+    { href: "/dashboard/rewards", label: "Rewards", icon: Gift },
+    { href: "/dashboard/scratch-cards", label: "Scratch Cards", icon: CircleDot },
+    { href: "/dashboard/wallet", label: "Wallet", icon: Wallet },
+    { href: "/dashboard/leaderboard", label: "Leaderboard", icon: Trophy },
     { href: "/dashboard/favorites", label: "Favorites", icon: Heart },
     { href: "/dashboard/profile", label: "Profile", icon: User },
     ...(staffProfile

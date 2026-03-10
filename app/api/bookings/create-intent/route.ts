@@ -56,11 +56,13 @@ export async function POST(request: Request) {
       )
     }
 
-    const [userSnap, listingSnap, settingsSnap, secureRazorpaySnap] = await Promise.all([
+    const [userSnap, listingSnap, settingsSnap, secureRazorpaySnap, walletSnap, campaignsSnap] = await Promise.all([
       adminDb.collection("users").doc(uid).get(),
       adminDb.collection("listings").doc(body.listingId).get(),
       adminDb.collection("settings").doc("global").get(),
       adminDb.collection("secureSettings").doc("razorpay").get(),
+      adminDb.collection("userWallets").doc(uid).get(),
+      adminDb.collection("campaigns").where("isActive", "==", true).get(),
     ])
 
     if (!userSnap.exists) {
@@ -148,6 +150,19 @@ export async function POST(request: Request) {
 
     let couponId: string | null = null
     let couponDiscount = 0
+    let couponCashback = 0
+    const nowTs = Date.now()
+    const activeCampaigns = campaignsSnap.docs
+      .map((d) => d.data() as Record<string, any>)
+      .filter((c) => {
+        const start = Number(c.startDate?.toMillis?.() || 0)
+        const end = Number(c.endDate?.toMillis?.() || 0)
+        return (!start || start <= nowTs) && (!end || end >= nowTs)
+      })
+    const cashbackMultiplier = activeCampaigns.reduce(
+      (max, c) => Math.max(max, Number(c.cashbackMultiplier || 1)),
+      1
+    )
     if (body.couponCode?.trim()) {
       const code = body.couponCode.trim().toUpperCase()
       const couponQuery = await adminDb
@@ -199,20 +214,35 @@ export async function POST(request: Request) {
         )
       }
 
-      couponDiscount =
-        coupon.discountType === "flat"
-          ? Math.round(coupon.discountValue)
-          : Math.round(basePreDiscount * (coupon.discountValue / 100))
+      if (coupon.rewardMode === "cashback") {
+        const cashbackValue = Number(coupon.cashbackValue || 0)
+        const computedCashback =
+          coupon.cashbackType === "percent"
+            ? Math.round(basePreDiscount * (cashbackValue / 100))
+            : Math.round(cashbackValue)
+        const maxCashback = Math.max(0, Number(coupon.maxCashbackAmount || 0))
+        couponCashback =
+          maxCashback > 0
+            ? Math.min(maxCashback, computedCashback)
+            : computedCashback
+        couponCashback = Math.round(couponCashback * cashbackMultiplier)
+      } else {
+        couponDiscount =
+          coupon.discountType === "flat"
+            ? Math.round(coupon.discountValue)
+            : Math.round(basePreDiscount * (coupon.discountValue / 100))
+      }
       couponId = coupon.id
     }
 
     const pricing = calculatePricing(listing, settings, body, couponDiscount)
-    if (pricing.amountToPay <= 0) {
-      return NextResponse.json(
-        { error: "Computed payable amount is invalid." },
-        { status: 400 }
-      )
-    }
+    pricing.cashbackAmount = couponCashback
+    const requestedWalletToUse = Math.max(0, Number(body.walletToUse || 0))
+    const walletBalance = Math.max(0, Number(walletSnap.data()?.balance || 0))
+    const walletApplied = Math.min(requestedWalletToUse, walletBalance, Math.max(0, pricing.amountToPay))
+    pricing.walletApplied = walletApplied
+    pricing.gatewayAmount = Math.max(0, pricing.amountToPay - walletApplied)
+    pricing.amountToPay = pricing.gatewayAmount
 
     const secureRazorpay = secureRazorpaySnap.exists
       ? (secureRazorpaySnap.data() as { razorpaySecretKey?: string; razorpayKeyId?: string })
@@ -227,7 +257,7 @@ export async function POST(request: Request) {
     const razorpayKeySecret = String(
       secureRazorpay.razorpaySecretKey || process.env.RAZORPAY_KEY_SECRET || ""
     ).trim()
-    if (!razorpayKeyId || !razorpayKeySecret) {
+    if (pricing.amountToPay > 0 && (!razorpayKeyId || !razorpayKeySecret)) {
       const missing: string[] = []
       if (!razorpayKeyId) missing.push("Razorpay Key ID")
       if (!razorpayKeySecret) missing.push("Razorpay Secret Key")
@@ -239,19 +269,26 @@ export async function POST(request: Request) {
       )
     }
 
-    const razorpay = new Razorpay({
-      key_id: razorpayKeyId,
-      key_secret: razorpayKeySecret,
-    })
-
-    const amountInPaise = pricing.amountToPay * 100
-    const receipt = `intent_${Date.now()}_${uid.slice(0, 6)}`
-    const order = await razorpay.orders.create({
-      amount: amountInPaise,
-      currency: "INR",
-      receipt,
-      payment_capture: true,
-    })
+    let orderId = ""
+    let orderAmount = 0
+    let orderCurrency = "INR"
+    if (pricing.amountToPay > 0) {
+      const razorpay = new Razorpay({
+        key_id: razorpayKeyId,
+        key_secret: razorpayKeySecret,
+      })
+      const amountInPaise = pricing.amountToPay * 100
+      const receipt = `intent_${Date.now()}_${uid.slice(0, 6)}`
+      const order = await razorpay.orders.create({
+        amount: amountInPaise,
+        currency: "INR",
+        receipt,
+        payment_capture: true,
+      })
+      orderId = order.id
+      orderAmount = Number(order.amount)
+      orderCurrency = String(order.currency || "INR")
+    }
 
     const intentRef = adminDb.collection("bookingIntents").doc()
     const expiresAt = Timestamp.fromDate(new Date(Date.now() + 15 * 60 * 1000))
@@ -270,9 +307,9 @@ export async function POST(request: Request) {
       couponCode: body.couponCode?.trim().toUpperCase() || null,
       couponId,
       pricing,
-      razorpayOrderId: order.id,
-      razorpayAmount: order.amount,
-      status: "created",
+      razorpayOrderId: orderId || null,
+      razorpayAmount: orderAmount,
+      status: pricing.amountToPay > 0 ? "created" : "wallet_ready",
       createdAt: Timestamp.now(),
       expiresAt,
     })
@@ -280,9 +317,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       intentId: intentRef.id,
       keyId: razorpayKeyId,
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
+      orderId,
+      amount: orderAmount,
+      currency: orderCurrency,
       pricing,
       displayName: settings.razorpayDisplayName || "Anga Function Hall",
       expiresAt: expiresAt.toDate().toISOString(),

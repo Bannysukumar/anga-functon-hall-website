@@ -107,9 +107,23 @@ service cloud.firestore {
           signedIn() &&
           request.auth.uid == userId &&
           request.resource.data.role == resource.data.role &&
-          request.resource.data.isBlocked == resource.data.isBlocked
+          request.resource.data.isBlocked == resource.data.isBlocked &&
+          request.resource.data.referredBy == resource.data.referredBy &&
+          request.resource.data.referredByCode == resource.data.referredByCode &&
+          request.resource.data.referrerName == resource.data.referrerName &&
+          request.resource.data.referralCode == resource.data.referralCode &&
+          request.resource.data.signupDate == resource.data.signupDate &&
+          request.resource.data.mobileNumber == resource.data.mobileNumber
         );
       allow delete: if isAdmin();
+    }
+
+    match /mobileNumbers/{mobileNumber} {
+      allow read, write: if isAdmin();
+    }
+
+    match /referralCodeIndex/{code} {
+      allow read, write: if isAdmin();
     }
 
     match /bookings/{bookingId} {
@@ -192,6 +206,51 @@ service cloud.firestore {
 
     match /coupons/{couponId} {
       allow read: if signedIn() && !isBlocked();
+      allow write: if isAdmin() || hasStaffPermission("CMS_EDIT");
+    }
+
+    match /userWallets/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow write: if isAdmin();
+    }
+
+    match /walletTransactions/{txId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /referrals/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow write: if isAdmin();
+    }
+
+    match /scratchCards/{cardId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create, delete: if isAdmin();
+    }
+
+    match /dailyRewards/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow write: if isAdmin();
+    }
+
+    match /spinUsage/{docId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /referralDailyStats/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if signedIn();
       allow write: if isAdmin() || hasStaffPermission("CMS_EDIT");
     }
 

@@ -31,7 +31,9 @@ import {
   CalendarCheck,
   Building,
   BarChart3,
+  Gift,
 } from "lucide-react"
+import { adminRewardsAnalytics } from "@/lib/rewards-functions"
 
 const COLORS = [
   "oklch(0.45 0.15 250)",
@@ -47,6 +49,7 @@ export default function AdminAnalyticsPage() {
   const [listings, setListings] = useState<Listing[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [users, setUsers] = useState<AppUser[]>([])
+  const [rewardsStats, setRewardsStats] = useState<Awaited<ReturnType<typeof adminRewardsAnalytics>> | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -62,6 +65,8 @@ export default function AdminAnalyticsPage() {
         setListings(l)
         setBranches(br)
         setUsers(u)
+        const rewards = await adminRewardsAnalytics()
+        setRewardsStats(rewards)
       } catch (err) {
         console.error("Error loading analytics:", err)
       } finally {
@@ -224,6 +229,19 @@ export default function AdminAnalyticsPage() {
               <p className="text-sm text-muted-foreground">Total Users</p>
               <p className="text-2xl font-bold text-foreground">
                 {users.length}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 p-5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-violet-100">
+              <Gift className="h-6 w-6 text-violet-600" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Referral Rewards</p>
+              <p className="text-2xl font-bold text-foreground">
+                ₹{Number(rewardsStats?.totalReferralRewards || 0).toLocaleString("en-IN")}
               </p>
             </div>
           </CardContent>

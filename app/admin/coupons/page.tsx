@@ -64,8 +64,12 @@ export default function AdminCouponsPage() {
   const [saving, setSaving] = useState(false)
 
   const [code, setCode] = useState("")
+  const [rewardMode, setRewardMode] = useState<"discount" | "cashback">("discount")
   const [discountType, setDiscountType] = useState<"flat" | "percent">("flat")
   const [discountValue, setDiscountValue] = useState("")
+  const [cashbackType, setCashbackType] = useState<"flat" | "percent">("flat")
+  const [cashbackValue, setCashbackValue] = useState("")
+  const [maxCashbackAmount, setMaxCashbackAmount] = useState("")
   const [minOrderAmount, setMinOrderAmount] = useState("")
   const [maxUses, setMaxUses] = useState("")
   const [validFrom, setValidFrom] = useState("")
@@ -89,8 +93,12 @@ export default function AdminCouponsPage() {
 
   const resetForm = () => {
     setCode("")
+    setRewardMode("discount")
     setDiscountType("flat")
     setDiscountValue("")
+    setCashbackType("flat")
+    setCashbackValue("")
+    setMaxCashbackAmount("")
     setMinOrderAmount("")
     setMaxUses("")
     setValidFrom("")
@@ -98,7 +106,7 @@ export default function AdminCouponsPage() {
   }
 
   const handleCreate = async () => {
-    if (!code || !discountValue || !validFrom || !validUntil) {
+    if (!code || !validFrom || !validUntil || (rewardMode === "discount" && !discountValue) || (rewardMode === "cashback" && !cashbackValue)) {
       toast({
         title: "Validation Error",
         description: "Please fill all required fields.",
@@ -111,8 +119,12 @@ export default function AdminCouponsPage() {
     try {
       await createCoupon({
         code: code.toUpperCase(),
+        rewardMode,
         discountType,
-        discountValue: Number(discountValue),
+        discountValue: Number(discountValue) || 0,
+        cashbackType,
+        cashbackValue: Number(cashbackValue) || 0,
+        maxCashbackAmount: Number(maxCashbackAmount) || 0,
         minOrderAmount: Number(minOrderAmount) || 0,
         maxUses: Number(maxUses) || 999,
         validFrom: Timestamp.fromDate(new Date(validFrom)),
@@ -201,6 +213,21 @@ export default function AdminCouponsPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
+                  <Label>Reward Mode</Label>
+                  <Select
+                    value={rewardMode}
+                    onValueChange={(v) => setRewardMode(v as "discount" | "cashback")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="discount">Discount</SelectItem>
+                      <SelectItem value="cashback">Wallet Cashback</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-2">
                   <Label>Discount Type</Label>
                   <Select
                     value={discountType}
@@ -237,6 +264,45 @@ export default function AdminCouponsPage() {
                     placeholder="0"
                   />
                 </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Cashback Type</Label>
+                  <Select
+                    value={cashbackType}
+                    onValueChange={(v) => setCashbackType(v as "flat" | "percent")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="flat">Flat (INR)</SelectItem>
+                      <SelectItem value="percent">Percentage (%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="cashbackValue">Cashback Value</Label>
+                  <Input
+                    id="cashbackValue"
+                    type="number"
+                    value={cashbackValue}
+                    onChange={(e) => setCashbackValue(e.target.value)}
+                    placeholder={cashbackType === "flat" ? "50" : "10"}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="maxCashbackAmount">Max Cashback</Label>
+                  <Input
+                    id="maxCashbackAmount"
+                    type="number"
+                    value={maxCashbackAmount}
+                    onChange={(e) => setMaxCashbackAmount(e.target.value)}
+                    placeholder="100"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="maxUses">Max Uses</Label>
                   <Input
@@ -335,9 +401,11 @@ export default function AdminCouponsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-foreground">
-                          {coupon.discountType === "flat"
-                            ? `₹${coupon.discountValue}`
-                            : `${coupon.discountValue}%`}
+                          {coupon.rewardMode === "cashback"
+                            ? `Cashback ${coupon.cashbackType === "flat" ? `₹${coupon.cashbackValue || 0}` : `${coupon.cashbackValue || 0}%`}`
+                            : coupon.discountType === "flat"
+                              ? `₹${coupon.discountValue}`
+                              : `${coupon.discountValue}%`}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {"₹"}{coupon.minOrderAmount}

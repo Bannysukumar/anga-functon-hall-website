@@ -6,6 +6,7 @@ export type VerifyAndConfirmPayload = {
   razorpayOrderId: string
   razorpayPaymentId: string
   razorpaySignature: string
+  walletOnly?: boolean
 }
 
 export type VerifyAndConfirmResponse = {
