@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { adminDb } from "@/lib/server/firebase-admin"
+import { resolvePaymentByOrderId } from "@/lib/server/payment-status"
 
 /**
  * GET /api/bookings/payment-status?orderId=razorpay_order_id
@@ -13,46 +13,7 @@ export async function GET(request: Request) {
     if (!orderId) {
       return NextResponse.json({ error: "Missing orderId" }, { status: 400 })
     }
-    const snap = await adminDb
-      .collection("bookingIntents")
-      .where("razorpayOrderId", "==", orderId)
-      .limit(1)
-      .get()
-    if (snap.empty) {
-      return NextResponse.json({
-        status: "not_found",
-        message: "No booking intent found for this order.",
-      })
-    }
-    const doc = snap.docs[0]
-    const data = doc.data()
-    const status = String(data?.status || "created")
-    const bookingId = data?.bookingId ? String(data.bookingId) : undefined
-    const invoiceNumber = data?.invoiceNumber
-    let paymentStatus: "pending" | "paid" | "failed" = "pending"
-    if (status === "consumed" && bookingId) paymentStatus = "paid"
-    else if (status === "payment_failed") paymentStatus = "failed"
-
-    const result: {
-      status: string
-      paymentStatus: "pending" | "paid" | "failed"
-      bookingId?: string
-      invoiceNumber?: string
-      intentId?: string
-    } = {
-      status,
-      paymentStatus,
-    }
-    if (bookingId) result.bookingId = bookingId
-    if (invoiceNumber) result.invoiceNumber = String(invoiceNumber)
-    result.intentId = doc.id
-
-    if (status === "consumed" && bookingId) {
-      const bookingSnap = await adminDb.collection("bookings").doc(bookingId).get()
-      const booking = bookingSnap.data()
-      if (booking?.invoiceNumber) result.invoiceNumber = String(booking.invoiceNumber)
-    }
-
+    const result = await resolvePaymentByOrderId(orderId)
     return NextResponse.json(result)
   } catch (error) {
     console.error("[payment-status]", error)

@@ -82,7 +82,9 @@ export default function CheckoutPage() {
   const [couponCashbackPreview, setCouponCashbackPreview] = useState(0)
   const [couponId, setCouponId] = useState<string | null>(null)
   const [applyingCoupon, setApplyingCoupon] = useState(false)
-  const [paymentStatusCheck, setPaymentStatusCheck] = useState<"idle" | "polling" | "paid" | "failed">("idle")
+  const [paymentStatusCheck, setPaymentStatusCheck] = useState<
+    "idle" | "polling" | "paid" | "failed" | "timeout"
+  >("idle")
   const [walletBalance, setWalletBalance] = useState(0)
   const [walletToUse, setWalletToUse] = useState(0)
 
@@ -142,12 +144,12 @@ export default function CheckoutPage() {
     if (!orderId) return
     let cancelled = false
     let attempts = 0
-    const maxAttempts = 30
+    const maxAttempts = 6
     const poll = async () => {
       if (cancelled || attempts >= maxAttempts) return
       setPaymentStatusCheck("polling")
       try {
-        const res = await fetch(`/api/bookings/payment-status?orderId=${encodeURIComponent(orderId)}`)
+        const res = await fetch(`/api/payment/status/${encodeURIComponent(orderId)}`)
         const data = (await res.json()) as { paymentStatus?: string; status?: string; bookingId?: string; invoiceNumber?: string }
         if (cancelled) return
         if (data.paymentStatus === "paid" && data.bookingId) {
@@ -182,8 +184,8 @@ export default function CheckoutPage() {
         if (!cancelled) setPaymentStatusCheck("idle")
       }
       attempts += 1
-      if (!cancelled && attempts < maxAttempts) setTimeout(poll, 2000)
-      else if (!cancelled) setPaymentStatusCheck("idle")
+      if (!cancelled && attempts < maxAttempts) setTimeout(poll, 5000)
+      else if (!cancelled) setPaymentStatusCheck("timeout")
     }
     poll()
     return () => {
@@ -400,37 +402,27 @@ export default function CheckoutPage() {
         }) => {
           try {
             setConfirming(true)
-            const finalizeResult = await verifyPaymentAndConfirmBooking({
-              intentId: intentResult.intentId,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature,
+            const verifyRes = await fetch("/api/payments/verify", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${await user.getIdToken()}`,
+              },
+              body: JSON.stringify({
+                intentId: intentResult.intentId,
+                razorpayOrderId: response.razorpay_order_id,
+                razorpayPaymentId: response.razorpay_payment_id,
+                razorpaySignature: response.razorpay_signature,
+              }),
             })
-            if (!finalizeResult?.bookingId) {
-              throw new Error("Payment verified but booking confirmation failed.")
+            const verifyData = (await verifyRes.json().catch(() => ({}))) as {
+              verified?: boolean
+              error?: string
             }
-
-            sessionStorage.removeItem("checkoutData")
-            sessionStorage.removeItem("pendingPaymentOrderId")
-            sessionStorage.removeItem("pendingPaymentIntentId")
-            sessionStorage.removeItem("pendingPaymentPricing")
-            sessionStorage.removeItem("pendingPaymentListingTitle")
-            sessionStorage.setItem(
-              "bookingConfirmation",
-              JSON.stringify({
-                bookingId: finalizeResult.bookingId,
-                invoiceId: finalizeResult.invoiceId,
-                invoiceNumber: finalizeResult.invoiceNumber,
-                invoicePdfUrl: finalizeResult.invoicePdfUrl || "",
-                allocatedLabels: finalizeResult.allocatedLabels || [],
-                emailStatus: finalizeResult.emailStatus || "pending",
-                listingTitle: listing.title,
-                totalAmount: intentResult.pricing.totalAmount,
-                advancePaid: intentResult.pricing.amountToPay,
-              })
-            )
-
-            router.push("/checkout/success")
+            if (!verifyRes.ok || !verifyData.verified) {
+              throw new Error(verifyData.error || "Payment verification failed.")
+            }
+            router.push(`/payment/verify?order_id=${encodeURIComponent(response.razorpay_order_id)}`)
           } catch (error) {
             setConfirming(false)
             toast.error(
@@ -512,6 +504,38 @@ export default function CheckoutPage() {
               >
                 Retry Payment
               </Button>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    )
+  }
+
+  if (paymentStatusCheck === "timeout") {
+    return (
+      <div className="flex min-h-screen flex-col">
+        <Header />
+        <main className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+          <Card className="w-full max-w-md">
+            <CardContent className="pt-6">
+              <p className="text-center font-medium text-foreground">
+                We could not confirm your payment yet.
+              </p>
+              <p className="mt-2 text-center text-sm text-muted-foreground">
+                Please refresh or check your bookings page.
+              </p>
+              <div className="mt-4 flex gap-2">
+                <Button className="w-full" onClick={() => window.location.reload()}>
+                  Refresh
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => router.push("/dashboard")}
+                >
+                  My Bookings
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </main>

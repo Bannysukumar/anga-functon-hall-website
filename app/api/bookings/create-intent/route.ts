@@ -144,6 +144,36 @@ export async function POST(request: Request) {
       )
     }
 
+    const existingPendingQuery = await adminDb
+      .collection("bookings")
+      .where("userId", "==", uid)
+      .where("listingId", "==", body.listingId)
+      .where("status", "==", "pending")
+      .limit(10)
+      .get()
+    const nowMs = Date.now()
+    const sameDatePending = existingPendingQuery.docs.find((doc) => {
+      const data = doc.data() || {}
+      const pendingOrder = String(data.razorpayOrderId || "").trim()
+      if (!pendingOrder) return false
+      const expires = data.paymentExpiresAt?.toDate?.() as Date | undefined
+      if (!expires || expires.getTime() < nowMs) return false
+      const checkIn = data.checkInDate?.toDate?.() as Date | undefined
+      const checkInKey = checkIn ? checkIn.toISOString().slice(0, 10) : ""
+      return checkInKey === String(body.checkInDate)
+    })
+    if (sameDatePending) {
+      return NextResponse.json(
+        {
+          error:
+            "You already have a pending booking. Please complete payment or wait for confirmation.",
+          bookingId: sameDatePending.id,
+          orderId: String(sameDatePending.data()?.razorpayOrderId || ""),
+        },
+        { status: 409 }
+      )
+    }
+
     const settings = settingsSnap.exists
       ? ({ ...DEFAULT_SETTINGS, ...(settingsSnap.data() as Partial<SiteSettings>) } as SiteSettings)
       : DEFAULT_SETTINGS
@@ -291,9 +321,57 @@ export async function POST(request: Request) {
     }
 
     const intentRef = adminDb.collection("bookingIntents").doc()
-    const expiresAt = Timestamp.fromDate(new Date(Date.now() + 15 * 60 * 1000))
+    const bookingRef = pricing.amountToPay > 0 ? adminDb.collection("bookings").doc() : null
+    const now = Timestamp.now()
+    const expiresAt = Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000))
+
+    if (bookingRef) {
+      const branchSnap = await adminDb.collection("branches").doc(branchIdToUse).get()
+      const branchName = String(branchSnap.data()?.name || "")
+      await bookingRef.set({
+        userId: uid,
+        customerEmail: String(userSnap.data()?.email || ""),
+        listingId: body.listingId,
+        roomId: String(listing.roomId || ""),
+        roomNumber: String(listing.roomNumber || ""),
+        roomTypeDetail: String(listing.roomTypeDetail || "ac") === "non_ac" ? "non_ac" : "ac",
+        branchId: branchIdToUse,
+        listingType: listing.type || "function_hall",
+        listingTitle: listing.title || "Listing",
+        branchName,
+        checkInDate: Timestamp.fromDate(new Date(body.checkInDate)),
+        checkOutDate: checkOutDate ? Timestamp.fromDate(new Date(checkOutDate)) : null,
+        slotId: body.slotId || null,
+        slotName: body.slotName || null,
+        guestCount: Math.max(1, Number(body.guestCount || 1)),
+        unitsBooked: Math.max(1, Number(body.unitsBooked || 1)),
+        selectedAddons: body.selectedAddons || [],
+        basePrice: Number(pricing.basePrice || 0),
+        addonsTotal: Number(pricing.addonsTotal || 0),
+        couponDiscount: Number(pricing.couponDiscount || 0),
+        taxAmount: Number(pricing.taxAmount || 0),
+        serviceFee: Number(pricing.serviceFee || 0),
+        totalAmount: Number(pricing.totalAmount || 0),
+        advancePaid: 0,
+        dueAmount: Number(pricing.totalAmount || 0),
+        remainingAmount: Number(pricing.totalAmount || 0),
+        status: "pending",
+        paymentStatus: "pending",
+        razorpayOrderId: orderId || "",
+        razorpayPaymentId: "",
+        paymentMethod: "online",
+        paymentExpiresAt: expiresAt,
+        invoiceNumber: "",
+        cancelledAt: null,
+        refundAmount: 0,
+        refundStatus: "none",
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
 
     await intentRef.set({
+      bookingId: bookingRef?.id || null,
       userId: uid,
       listingId: body.listingId,
       branchId: branchIdToUse,
@@ -310,7 +388,7 @@ export async function POST(request: Request) {
       razorpayOrderId: orderId || null,
       razorpayAmount: orderAmount,
       status: pricing.amountToPay > 0 ? "created" : "wallet_ready",
-      createdAt: Timestamp.now(),
+      createdAt: now,
       expiresAt,
     })
 

@@ -91,6 +91,7 @@ export type BookingStatus =
   | "no_show"
 export type PaymentStatus =
   | "pending"
+  | "failed"
   | "partial"
   | "paid"
   | "advance_paid"

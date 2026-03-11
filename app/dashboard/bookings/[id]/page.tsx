@@ -591,6 +591,16 @@ export default function BookingDetailPage() {
               </CardContent>
             </Card>
           )}
+          {booking.status === "pending" && booking.paymentStatus === "pending" && (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm font-semibold text-amber-700">Payment Pending</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Waiting for payment confirmation.
+                </p>
+              </CardContent>
+            </Card>
+          )}
           {booking.status === "confirmed" && !isExpired && !canCheckIn && scheduledCheckInAt && (
             <p className="text-xs text-muted-foreground">
               Check-in will be available after{" "}

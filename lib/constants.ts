@@ -40,6 +40,7 @@ export const BOOKING_STATUS_LABELS: Record<string, string> = {
 
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
+  failed: "Failed",
   partial: "Partial",
   paid: "Paid",
   advance_paid: "Advance Paid",
@@ -61,6 +62,7 @@ export const BOOKING_STATUS_COLORS: Record<string, string> = {
 
 export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
+  failed: "bg-red-100 text-red-800",
   partial: "bg-sky-100 text-sky-800",
   paid: "bg-emerald-100 text-emerald-800",
   advance_paid: "bg-sky-100 text-sky-800",

@@ -49,7 +49,10 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
-    if (intent?.status !== "created") {
+    if (intent?.status === "consumed" && intent?.bookingId) {
+      return NextResponse.json({ verified: true, bookingId: String(intent.bookingId) })
+    }
+    if (intent?.status !== "created" && intent?.status !== "verified") {
       return NextResponse.json(
         { verified: false, error: "Intent is not in payable state." },
         { status: 400 }

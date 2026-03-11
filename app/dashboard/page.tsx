@@ -40,7 +40,26 @@ export default function DashboardBookingsPage() {
     const load = async () => {
       try {
         const data = await getBookings({ userId: user.uid })
-        setBookings(data)
+        const pendingOrders = data
+          .filter(
+            (booking) =>
+              booking.status === "pending" &&
+              booking.paymentStatus === "pending" &&
+              String(booking.razorpayOrderId || "").trim().length > 0
+          )
+          .map((booking) => String(booking.razorpayOrderId || "").trim())
+
+        if (pendingOrders.length > 0) {
+          await Promise.allSettled(
+            pendingOrders.map((orderId) =>
+              fetch(`/api/payment/status/${encodeURIComponent(orderId)}`).catch(() => undefined)
+            )
+          )
+          const refreshed = await getBookings({ userId: user.uid })
+          setBookings(refreshed)
+        } else {
+          setBookings(data)
+        }
       } catch (err) {
         console.error("Error loading bookings:", err)
       } finally {

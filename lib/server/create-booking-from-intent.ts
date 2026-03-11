@@ -80,7 +80,10 @@ export async function createBookingFromIntent(
       throw new Error(`Not enough availability. Only ${Math.max(0, maxUnits - currentBooked)} unit(s) remaining.`)
     }
 
-    const bookingRef = adminDb.collection("bookings").doc()
+    const existingBookingId = String(intent.bookingId || "")
+    const bookingRef = existingBookingId
+      ? adminDb.collection("bookings").doc(existingBookingId)
+      : adminDb.collection("bookings").doc()
     const paymentRef = adminDb.collection("payments").doc()
     const now = Timestamp.now()
     const invoiceNumber = generateInvoiceNumber()
@@ -145,7 +148,7 @@ export async function createBookingFromIntent(
       refundStatus: "none",
       createdAt: now,
       updatedAt: now,
-    })
+    }, { merge: true })
 
     transaction.set(paymentRef, {
       bookingId: bookingRef.id,
@@ -173,7 +176,12 @@ export async function createBookingFromIntent(
       }
     }
 
-    transaction.update(intentRef, { status: "consumed", bookingId: bookingRef.id, finalizedAt: now })
+    transaction.update(intentRef, {
+      status: "consumed",
+      bookingId: bookingRef.id,
+      finalizedAt: now,
+      updatedAt: now,
+    })
 
     return {
       bookingId: bookingRef.id,
