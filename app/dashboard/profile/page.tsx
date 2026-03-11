@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Loader2, Save, User } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -22,6 +22,14 @@ export default function ProfilePage() {
     appUser?.displayName || user?.displayName || ""
   )
   const [phone, setPhone] = useState(appUser?.phone || "")
+
+  const loginMethod = (() => {
+    const provider = appUser?.authProvider
+    if (provider === "github") return "GitHub"
+    if (provider === "phone") return "Phone"
+    if (provider === "google") return "Google"
+    return "Email"
+  })()
 
   const handleSave = async () => {
     if (!user) return
@@ -68,6 +76,7 @@ export default function ProfilePage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-3">
             <Avatar className="h-12 w-12">
+              <AvatarImage src={user?.photoURL || appUser?.photoURL || ""} />
               <AvatarFallback className="bg-primary text-primary-foreground">
                 {initials}
               </AvatarFallback>
@@ -154,6 +163,20 @@ export default function ProfilePage() {
               <p className="text-muted-foreground">Email Verified</p>
               <p className="text-foreground">
                 {user?.emailVerified ? "Yes" : "No"}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Login Method</p>
+              <p className="text-foreground">{loginMethod}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Phone Number</p>
+              <p className="text-foreground">{appUser?.phone || user?.phoneNumber || "N/A"}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Profile Picture</p>
+              <p className="text-foreground">
+                {user?.photoURL || appUser?.photoURL ? "Available" : "Not set"}
               </p>
             </div>
           </div>

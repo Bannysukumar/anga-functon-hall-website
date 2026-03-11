@@ -136,6 +136,7 @@ export async function POST(request: Request) {
               favorites: Array.isArray(existingUser.favorites) ? existingUser.favorites : [],
               isBlocked: Boolean(existingUser.isBlocked || false),
               role: String(existingUser.role || "user"),
+              authProvider: String(existingUser.authProvider || "password"),
               referralCode: String(existingUser.referralCode || candidate),
               referredByCode,
               referredBy: referrer.userId,

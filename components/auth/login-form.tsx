@@ -2,13 +2,14 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { logIn, logInWithGoogle } from "@/lib/firebase-auth"
+import { logIn, logInWithGitHub, logInWithGoogle } from "@/lib/firebase-auth"
 import { getUser } from "@/lib/firebase-db"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import Link from "next/link"
+import { Github, Smartphone } from "lucide-react"
 
 const LOGIN_RATE_LIMIT_KEY = "login_rate_limit"
 const LOGIN_MAX_ATTEMPTS = 5
@@ -17,7 +18,7 @@ const LOGIN_WINDOW_MS = 10 * 60 * 1000
 export function LoginForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState<null | "email" | "phone" | "google" | "github">(null)
   const router = useRouter()
 
   async function resolvePostLoginRoute(uid: string) {
@@ -38,7 +39,7 @@ export function LoginForm() {
       toast.error("Too many login attempts. Please try again in a few minutes.")
       return
     }
-    setLoading(true)
+    setLoading("email")
     try {
       const user = await logIn(email, password)
       if (typeof window !== "undefined") {
@@ -59,12 +60,32 @@ export function LoginForm() {
         error instanceof Error ? error.message : "Login failed. Please try again."
       toast.error(message)
     } finally {
-      setLoading(false)
+      setLoading(null)
+    }
+  }
+
+  async function handlePhoneLogin() {
+    setLoading("phone")
+    router.push("/login-phone")
+  }
+
+  async function handleGitHub() {
+    setLoading("github")
+    try {
+      const user = await logInWithGitHub()
+      const nextRoute = await resolvePostLoginRoute(user.uid)
+      toast.success("Welcome!")
+      router.push(nextRoute)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "GitHub login failed."
+      toast.error(message)
+    } finally {
+      setLoading(null)
     }
   }
 
   async function handleGoogle() {
-    setLoading(true)
+    setLoading("google")
     try {
       const user = await logInWithGoogle()
       const nextRoute = await resolvePostLoginRoute(user.uid)
@@ -75,7 +96,7 @@ export function LoginForm() {
         error instanceof Error ? error.message : "Google login failed."
       toast.error(message)
     } finally {
-      setLoading(false)
+      setLoading(null)
     }
   }
 
@@ -83,10 +104,10 @@ export function LoginForm() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Welcome back
+          Login to Your Account
         </h1>
         <p className="text-sm text-muted-foreground">
-          Sign in to your account to continue
+          Sign in to continue
         </p>
       </div>
 
@@ -103,15 +124,7 @@ export function LoginForm() {
           />
         </div>
         <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">Password</Label>
-            <Link
-              href="/forgot-password"
-              className="text-xs text-primary hover:underline"
-            >
-              Forgot password?
-            </Link>
-          </div>
+          <Label htmlFor="password">Password</Label>
           <Input
             id="password"
             type="password"
@@ -121,9 +134,12 @@ export function LoginForm() {
             required
           />
         </div>
-        <Button type="submit" disabled={loading} className="w-full">
-          {loading ? "Signing in..." : "Sign In"}
+        <Button type="submit" disabled={loading !== null} className="w-full">
+          {loading === "email" ? "Signing in..." : "Login"}
         </Button>
+        <Link href="/forgot-password" className="text-center text-xs text-primary hover:underline">
+          Forgot Password?
+        </Link>
       </form>
 
       <div className="relative">
@@ -140,8 +156,30 @@ export function LoginForm() {
       <Button
         type="button"
         variant="outline"
+        onClick={handlePhoneLogin}
+        disabled={loading !== null}
+        className="w-full"
+      >
+        <Smartphone className="mr-2 h-4 w-4" />
+        {loading === "phone" ? "Opening phone login..." : "Continue with Phone"}
+      </Button>
+
+      <Button
+        type="button"
+        variant="outline"
+        onClick={handleGitHub}
+        disabled={loading !== null}
+        className="w-full"
+      >
+        <Github className="mr-2 h-4 w-4" />
+        {loading === "github" ? "Connecting to GitHub..." : "Continue with GitHub"}
+      </Button>
+
+      <Button
+        type="button"
+        variant="outline"
         onClick={handleGoogle}
-        disabled={loading}
+        disabled={loading !== null}
         className="w-full"
       >
         <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
@@ -162,7 +200,7 @@ export function LoginForm() {
             fill="#EA4335"
           />
         </svg>
-        Google
+        {loading === "google" ? "Connecting to Google..." : "Continue with Google"}
       </Button>
 
       <p className="text-center text-sm text-muted-foreground">

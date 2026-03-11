@@ -236,6 +236,7 @@ export interface AppUser {
   displayName: string
   phone: string
   mobileNumber?: string
+  authProvider?: "password" | "google" | "github" | "phone"
   photoURL: string
   favorites: string[]
   isBlocked: boolean
