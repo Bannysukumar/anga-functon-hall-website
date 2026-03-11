@@ -14,6 +14,8 @@ export interface BookingIntentInput {
   slotName: string | null
   guestCount: number
   unitsBooked: number
+  selectedRoomListingIds?: string[]
+  selectedRoomNumbers?: string[]
   selectedAddons: IntentAddonInput[]
   couponCode?: string
   walletToUse?: number

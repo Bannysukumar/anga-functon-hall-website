@@ -33,7 +33,15 @@ export default function ListingsPage() {
         getListings(),
         getBranches(),
       ])
-      setListings(listingsData)
+      const uniqueById = new Map<string, Listing>()
+      listingsData.forEach((listing) => {
+        uniqueById.set(String(listing.id), {
+          ...listing,
+          isActive: Boolean(listing.isActive),
+          isFeatured: Boolean(listing.isFeatured),
+        })
+      })
+      setListings(Array.from(uniqueById.values()))
       const branchMap: Record<string, Branch> = {}
       branchesData.forEach((b) => {
         branchMap[b.id] = b
@@ -80,9 +88,10 @@ export default function ListingsPage() {
       const duplicateRoomNumber = listing.roomNumber
         ? `${String(listing.roomNumber).trim()} Copy`
         : ""
+      const { id: _ignoredId, createdAt: _ignoredCreatedAt, updatedAt: _ignoredUpdatedAt, ...listingWithoutMeta } = listing
 
       const payload: Omit<Listing, "id" | "createdAt" | "updatedAt"> = {
-        ...listing,
+        ...listingWithoutMeta,
         title: duplicateTitle,
         roomId: duplicateRoomId,
         roomNumber: duplicateRoomNumber,

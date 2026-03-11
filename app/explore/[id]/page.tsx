@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { getListing, getBranch, getAvailabilityLocks, getSettings } from "@/lib/firebase-db"
+import { getListing, getBranch, getAvailabilityLocks, getSettings, getListings } from "@/lib/firebase-db"
 import type { Listing, Branch, AvailabilityLock, ListingSlot, SelectedAddon, SiteSettings } from "@/lib/types"
 import { LISTING_TYPE_LABELS } from "@/lib/constants"
 import { DEFAULT_SETTINGS } from "@/lib/constants"
@@ -35,6 +35,7 @@ import {
 import { format, addDays, isBefore, startOfDay, startOfMonth, endOfMonth } from "date-fns"
 import { toast } from "sonner"
 import Link from "next/link"
+import { RoomLayoutMap, type RoomVisualItem } from "@/components/rooms/room-layout-map"
 
 export default function ListingDetailPage() {
   const params = useParams()
@@ -46,6 +47,10 @@ export default function ListingDetailPage() {
   const [branch, setBranch] = useState<Branch | null>(null)
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
   const [locks, setLocks] = useState<AvailabilityLock[]>([])
+  const [roomListings, setRoomListings] = useState<Listing[]>([])
+  const [roomLocksById, setRoomLocksById] = useState<Record<string, AvailabilityLock[]>>({})
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([])
+  const [loadingRoomMap, setLoadingRoomMap] = useState(false)
   const [loading, setLoading] = useState(true)
   const [calendarMonth, setCalendarMonth] = useState<Date>(startOfMonth(addDays(new Date(), 1)))
 
@@ -92,6 +97,31 @@ export default function ListingDetailPage() {
     load()
   }, [id, router])
 
+  useEffect(() => {
+    if (!listing || listing.type !== "room" || !listing.branchId) {
+      setRoomListings([])
+      return
+    }
+    const loadRooms = async () => {
+      try {
+        const allRooms = await getListings({
+          branchId: listing.branchId,
+          type: "room",
+          activeOnly: true,
+        })
+        setRoomListings(allRooms)
+      } catch {
+        setRoomListings([])
+      }
+    }
+    loadRooms()
+  }, [listing])
+
+  useEffect(() => {
+    if (!listing || listing.type !== "room") return
+    setSelectedRoomIds(listing.id ? [listing.id] : [])
+  }, [listing?.id, listing?.type])
+
   const loadAvailability = useCallback(async () => {
     if (!listing) return
     const monthStart = startOfMonth(calendarMonth)
@@ -123,6 +153,56 @@ export default function ListingDetailPage() {
   useEffect(() => {
     loadAvailability()
   }, [loadAvailability])
+
+  useEffect(() => {
+    if (!listing || listing.type !== "room" || roomListings.length === 0 || !selectedDate) {
+      setRoomLocksById({})
+      return
+    }
+    const loadRoomLocks = async () => {
+      setLoadingRoomMap(true)
+      try {
+        const rangeEnd = selectedCheckOutDate && selectedCheckOutDate > selectedDate
+          ? selectedCheckOutDate
+          : addDays(selectedDate, 1)
+        const dateKeys: string[] = []
+        for (
+          let cursor = startOfDay(selectedDate);
+          cursor < startOfDay(rangeEnd);
+          cursor = addDays(cursor, 1)
+        ) {
+          dateKeys.push(format(cursor, "yyyy-MM-dd"))
+        }
+        if (dateKeys.length === 0) {
+          setRoomLocksById({})
+          return
+        }
+        const chunks: string[][] = []
+        for (let index = 0; index < dateKeys.length; index += 30) {
+          chunks.push(dateKeys.slice(index, index + 30))
+        }
+
+        const lockTuples = await Promise.all(
+          roomListings.map(async (room) => {
+            const lockChunks = await Promise.all(
+              chunks.map((chunk) => getAvailabilityLocks(room.id, chunk, room.roomId || undefined))
+            )
+            return [room.id, lockChunks.flat()] as const
+          })
+        )
+        const next: Record<string, AvailabilityLock[]> = {}
+        lockTuples.forEach(([roomId, roomLocks]) => {
+          next[roomId] = roomLocks
+        })
+        setRoomLocksById(next)
+      } catch {
+        setRoomLocksById({})
+      } finally {
+        setLoadingRoomMap(false)
+      }
+    }
+    loadRoomLocks()
+  }, [listing, roomListings, selectedDate, selectedCheckOutDate])
 
   function getAvailableUnits(slotId: string): number {
     if (!listing || !selectedDate) return 0
@@ -215,6 +295,19 @@ export default function ListingDetailPage() {
     return { base, addonsTotal, serviceFee, tax, total }
   }
 
+  function handleToggleRoom(roomItem: RoomVisualItem) {
+    if (!listing || listing.type !== "room") return
+    if (roomItem.status === "booked" || roomItem.status === "maintenance" || roomItem.status === "blocked") {
+      return
+    }
+    setSelectedRoomIds((prev) => {
+      if (prev.includes(roomItem.id)) {
+        return prev.filter((idValue) => idValue !== roomItem.id)
+      }
+      return [...prev, roomItem.id]
+    })
+  }
+
   function handleBook() {
     if (!user) {
       toast.error("Please sign in to book")
@@ -225,7 +318,11 @@ export default function ListingDetailPage() {
       toast.error("Please select a date")
       return
     }
-    if (listing?.slotsEnabled && !selectedSlot) {
+    const requiresSlotSelection =
+      Boolean(listing?.slotsEnabled) &&
+      Array.isArray(listing?.slots) &&
+      listing.slots.length > 0
+    if (requiresSlotSelection && !selectedSlot) {
       toast.error("Please select a time slot")
       return
     }
@@ -251,12 +348,26 @@ export default function ListingDetailPage() {
 
     const slotId = selectedSlot?.slotId || "default"
     const available = getAvailableUnits(slotId)
-    if (available < unitsBooked) {
+    if (listing?.type !== "room" && available < unitsBooked) {
       toast.error(`Only ${available} unit(s) available`)
       return
     }
 
-    const price = calculatePrice()
+    if (listing?.type === "room") {
+      if (selectedRoomIds.length === 0) {
+        toast.error("Please select at least one room from the layout")
+        return
+      }
+      const selectedRooms = selectedRoomIds
+        .map((roomId) => roomListings.find((room) => room.id === roomId))
+        .filter((room): room is Listing => Boolean(room))
+      const distinctPrices = new Set(selectedRooms.map((room) => Number(room.pricePerUnit || 0)))
+      if (distinctPrices.size > 1) {
+        toast.error("Please select rooms with the same price for one checkout.")
+        return
+      }
+    }
+
     const stayDays =
       listing?.type === "room" || listing?.type === "dormitory"
         ? Math.max(
@@ -268,6 +379,19 @@ export default function ListingDetailPage() {
             )
           )
         : 1
+    const roomSelectionCount = listing?.type === "room" ? Math.max(1, selectedRoomIds.length) : unitsBooked
+    const selectedRooms = listing?.type === "room"
+      ? selectedRoomIds
+          .map((roomId) => roomListings.find((room) => room.id === roomId))
+          .filter((room): room is Listing => Boolean(room))
+      : []
+    const basePricePerUnit = selectedRooms[0]?.pricePerUnit ?? listing.pricePerUnit
+    const price = calculatePrice()
+    const adjustedBase = Math.max(0, Number(basePricePerUnit || 0) * roomSelectionCount * stayDays)
+    const subtotal = adjustedBase + price.addonsTotal
+    const adjustedServiceFee = Math.round(subtotal * (settings.serviceFeePercent / 100))
+    const adjustedTax = Math.round((subtotal + adjustedServiceFee) * (settings.taxPercent / 100))
+    const adjustedTotal = subtotal + adjustedServiceFee + adjustedTax
     const addonsArr: SelectedAddon[] = []
     listing?.addons?.forEach((addon) => {
       if (selectedAddons[addon.name]) {
@@ -281,7 +405,7 @@ export default function ListingDetailPage() {
     })
 
     const checkoutData = {
-      listingId: listing!.id,
+      listingId: selectedRooms[0]?.id || listing!.id,
       branchId: listing!.branchId,
       checkInDate: format(selectedDate, "yyyy-MM-dd"),
       checkOutDate:
@@ -291,14 +415,16 @@ export default function ListingDetailPage() {
       slotId: selectedSlot?.slotId || null,
       slotName: selectedSlot?.name || null,
       guestCount,
-      unitsBooked,
+      unitsBooked: roomSelectionCount,
       stayDays,
+      selectedRoomListingIds: selectedRooms.map((room) => room.id),
+      selectedRoomNumbers: selectedRooms.map((room) => String(room.roomNumber || room.title || room.id)),
       selectedAddons: addonsArr,
-      basePrice: price.base,
+      basePrice: adjustedBase,
       addonsTotal: price.addonsTotal,
-      serviceFee: price.serviceFee,
-      taxAmount: price.tax,
-      totalAmount: price.total,
+      serviceFee: adjustedServiceFee,
+      taxAmount: adjustedTax,
+      totalAmount: adjustedTotal,
     }
 
     sessionStorage.setItem("checkoutData", JSON.stringify(checkoutData))
@@ -330,6 +456,59 @@ export default function ListingDetailPage() {
   )
   const today = startOfDay(new Date())
   const maxDate = addDays(today, settings.maxBookingWindowDays)
+
+  const roomVisualItems = useMemo<RoomVisualItem[]>(() => {
+    if (!listing || listing.type !== "room") return []
+    const checkIn = selectedDate ? startOfDay(selectedDate) : null
+    const checkOut =
+      selectedCheckOutDate && selectedDate && selectedCheckOutDate > selectedDate
+        ? startOfDay(selectedCheckOutDate)
+        : checkIn
+          ? addDays(checkIn, 1)
+          : null
+
+    return roomListings.map((room) => {
+      const roomLocks = roomLocksById[room.id] || []
+      const floorFromNumber = Number.parseInt(String(room.roomNumber || "").slice(0, 1), 10)
+      const floorNumber = Number(room.floorNumber || (Number.isFinite(floorFromNumber) ? floorFromNumber : 1))
+      let status: RoomVisualItem["status"] =
+        room.roomTypeDetail === "non_ac" ? "available_non_ac" : "available_ac"
+
+      if (room.roomStatus === "maintenance") {
+        status = "maintenance"
+      } else if (room.roomStatus === "blocked") {
+        status = "blocked"
+      } else if (checkIn && checkOut) {
+        let sold = false
+        for (let cursor = checkIn; cursor < checkOut; cursor = addDays(cursor, 1)) {
+          const key = format(cursor, "yyyy-MM-dd")
+          const lock = roomLocks.find((entry) => entry.date === key && entry.slotId === "default")
+          if (lock?.isBlocked || Number(lock?.bookedUnits || 0) >= Number(lock?.maxUnits || room.inventory || 1)) {
+            sold = true
+            break
+          }
+        }
+        if (sold) status = "booked"
+      }
+
+      return {
+        id: room.id,
+        roomNumber: String(room.roomNumber || room.title || "Room"),
+        floorNumber: Math.max(1, floorNumber),
+        price: Number(room.pricePerUnit || 0),
+        roomType: room.roomTypeDetail === "non_ac" ? "non_ac" : "ac",
+        status,
+      }
+    })
+  }, [listing, roomListings, roomLocksById, selectedDate, selectedCheckOutDate])
+
+  const selectedRoomSummary = useMemo(() => {
+    if (selectedRoomIds.length === 0) return []
+    const map = new Map(roomListings.map((room) => [room.id, room]))
+    return selectedRoomIds
+      .map((roomId) => map.get(roomId))
+      .filter((room): room is Listing => Boolean(room))
+  }, [roomListings, selectedRoomIds])
 
   useEffect(() => {
     if (currentImage >= visibleImages.length) {
@@ -686,6 +865,39 @@ export default function ListingDetailPage() {
                     )}
                   </div>
 
+                  {listing.type === "room" && (
+                    <div className="flex flex-col gap-2">
+                      <Label className="text-sm font-medium">Choose Room Visually</Label>
+                      {loadingRoomMap ? (
+                        <div className="flex items-center justify-center rounded-md border py-8">
+                          <Spinner className="h-5 w-5" />
+                        </div>
+                      ) : (
+                        <RoomLayoutMap
+                          rooms={roomVisualItems}
+                          selectedRoomIds={selectedRoomIds}
+                          onToggleRoom={handleToggleRoom}
+                        />
+                      )}
+                      {selectedRoomSummary.length > 0 ? (
+                        <div className="rounded-md border bg-secondary/40 p-3 text-xs text-muted-foreground">
+                          <p className="font-medium text-foreground">
+                            Selected Room{selectedRoomSummary.length > 1 ? "s" : ""}:{" "}
+                            {selectedRoomSummary
+                              .map((room) => String(room.roomNumber || room.title || room.id))
+                              .join(", ")}
+                          </p>
+                          <p>
+                            Price: ₹
+                            {Math.round(Number(selectedRoomSummary[0]?.pricePerUnit || listing.pricePerUnit)).toLocaleString("en-IN")}
+                            {" x "}
+                            {selectedRoomSummary.length}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+
                   {/* Time Slots */}
                   {listing.slotsEnabled &&
                     listing.slots &&
@@ -846,7 +1058,7 @@ export default function ListingDetailPage() {
                     className="w-full"
                     onClick={handleBook}
                   >
-                    Book Now
+                    Proceed to Booking
                   </Button>
                 </CardContent>
               </Card>

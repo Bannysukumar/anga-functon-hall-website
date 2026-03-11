@@ -335,6 +335,12 @@ export async function POST(request: Request) {
         roomId: String(listing.roomId || ""),
         roomNumber: String(listing.roomNumber || ""),
         roomTypeDetail: String(listing.roomTypeDetail || "ac") === "non_ac" ? "non_ac" : "ac",
+        selectedRoomListingIds: Array.isArray(body.selectedRoomListingIds)
+          ? body.selectedRoomListingIds.map((value) => String(value))
+          : [],
+        selectedRoomNumbers: Array.isArray(body.selectedRoomNumbers)
+          ? body.selectedRoomNumbers.map((value) => String(value))
+          : [],
         branchId: branchIdToUse,
         listingType: listing.type || "function_hall",
         listingTitle: listing.title || "Listing",
@@ -381,6 +387,12 @@ export async function POST(request: Request) {
       slotName: body.slotName || null,
       guestCount: Math.max(1, Number(body.guestCount || 1)),
       unitsBooked: Math.max(1, Number(body.unitsBooked || 1)),
+      selectedRoomListingIds: Array.isArray(body.selectedRoomListingIds)
+        ? body.selectedRoomListingIds.map((value) => String(value))
+        : [],
+      selectedRoomNumbers: Array.isArray(body.selectedRoomNumbers)
+        ? body.selectedRoomNumbers.map((value) => String(value))
+        : [],
       selectedAddons: body.selectedAddons || [],
       couponCode: body.couponCode?.trim().toUpperCase() || null,
       couponId,

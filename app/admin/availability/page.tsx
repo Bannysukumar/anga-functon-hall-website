@@ -5,6 +5,7 @@ import {
   getListings,
   getAvailabilityLocks,
   setAvailabilityBlock,
+  updateListing,
 } from "@/lib/firebase-db"
 import type { Listing, AvailabilityLock } from "@/lib/types"
 import { LISTING_TYPE_LABELS } from "@/lib/constants"
@@ -18,6 +19,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   CalendarDays,
   ChevronLeft,
@@ -25,9 +36,11 @@ import {
   Loader2,
   Lock,
   Unlock,
+  Settings,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
+import { RoomLayoutMap, type RoomVisualItem } from "@/components/rooms/room-layout-map"
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate()
@@ -48,13 +61,21 @@ const MONTH_NAMES = [
 
 export default function AdminAvailabilityPage() {
   const { toast } = useToast()
+  const now = new Date()
   const [listings, setListings] = useState<Listing[]>([])
   const [selectedListingId, setSelectedListingId] = useState("")
   const [locks, setLocks] = useState<AvailabilityLock[]>([])
+  const [roomLocks, setRoomLocks] = useState<AvailabilityLock[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingLocks, setLoadingLocks] = useState(false)
-
-  const now = new Date()
+  const [roomListings, setRoomListings] = useState<Listing[]>([])
+  const [selectedRoom, setSelectedRoom] = useState<Listing | null>(null)
+  const [roomDialogOpen, setRoomDialogOpen] = useState(false)
+  const [roomTypeDraft, setRoomTypeDraft] = useState<"ac" | "non_ac">("ac")
+  const [priceDraft, setPriceDraft] = useState(0)
+  const [selectedDateForRooms, setSelectedDateForRooms] = useState(
+    formatDateStr(now.getFullYear(), now.getMonth(), now.getDate())
+  )
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
 
@@ -63,6 +84,7 @@ export default function AdminAvailabilityPage() {
       try {
         const data = await getListings()
         setListings(data)
+        setRoomListings(data.filter((entry) => entry.type === "room"))
         if (data.length > 0) setSelectedListingId(data[0].id)
       } catch (err) {
         console.error("Error loading listings:", err)
@@ -133,6 +155,64 @@ export default function AdminAvailabilityPage() {
     return map
   }, [locks])
 
+  useEffect(() => {
+    if (roomListings.length === 0 || !selectedDateForRooms) {
+      setRoomLocks([])
+      return
+    }
+    const loadRoomLocks = async () => {
+      try {
+        const roomLockChunks = await Promise.all(
+          roomListings.map((room) =>
+            getAvailabilityLocks(room.id, [selectedDateForRooms], room.roomId || undefined)
+          )
+        )
+        setRoomLocks(roomLockChunks.flat())
+      } catch {
+        setRoomLocks([])
+      }
+    }
+    loadRoomLocks()
+  }, [roomListings, selectedDateForRooms])
+
+  const roomMapByListingId = useMemo(() => {
+    const map = new Map<string, AvailabilityLock>()
+    roomLocks.forEach((lock) => {
+      if (lock.date === selectedDateForRooms && lock.slotId === "default") {
+        map.set(lock.listingId, lock)
+      }
+    })
+    return map
+  }, [roomLocks, selectedDateForRooms])
+
+  const roomVisualItems = useMemo<RoomVisualItem[]>(() => {
+    return roomListings.map((room) => {
+      const roomLock = roomMapByListingId.get(room.id)
+      const floorFromNumber = Number.parseInt(String(room.roomNumber || "").slice(0, 1), 10)
+      const floorNumber = Number(room.floorNumber || (Number.isFinite(floorFromNumber) ? floorFromNumber : 1))
+      let status: RoomVisualItem["status"] =
+        room.roomTypeDetail === "non_ac" ? "available_non_ac" : "available_ac"
+      if (room.roomStatus === "maintenance") {
+        status = "maintenance"
+      } else if (room.roomStatus === "blocked") {
+        status = "blocked"
+      } else if (
+        roomLock?.isBlocked ||
+        Number(roomLock?.bookedUnits || 0) >= Number(roomLock?.maxUnits || room.inventory || 1)
+      ) {
+        status = "booked"
+      }
+      return {
+        id: room.id,
+        roomNumber: String(room.roomNumber || room.title || room.id),
+        floorNumber: Math.max(1, floorNumber),
+        price: Number(room.pricePerUnit || 0),
+        roomType: room.roomTypeDetail === "non_ac" ? "non_ac" : "ac",
+        status,
+      }
+    })
+  }, [roomListings, roomMapByListingId])
+
   const handleToggleBlock = async (dateStr: string) => {
     if (!selectedListing) return
     const existing = lockMap.get(dateStr)
@@ -156,6 +236,79 @@ export default function AdminAvailabilityPage() {
       toast({
         title: "Error",
         description: "Failed to update availability.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const openRoomEditor = (roomItem: RoomVisualItem) => {
+    const room = roomListings.find((entry) => entry.id === roomItem.id)
+    if (!room) return
+    setSelectedRoom(room)
+    setRoomTypeDraft(room.roomTypeDetail === "non_ac" ? "non_ac" : "ac")
+    setPriceDraft(Number(room.pricePerUnit || 0))
+    setRoomDialogOpen(true)
+  }
+
+  const refreshData = async () => {
+    if (!selectedListingId) return
+    const [listingData, lockData] = await Promise.all([
+      getListings(),
+      loadMonthLocks(selectedListingId, year, month),
+    ])
+    setListings(listingData)
+    setRoomListings(listingData.filter((entry) => entry.type === "room"))
+    setLocks(lockData)
+  }
+
+  const updateRoomStatus = async (status: "available" | "blocked" | "maintenance") => {
+    if (!selectedRoom) return
+    try {
+      await updateListing(selectedRoom.id, { roomStatus: status })
+      toast({ title: `Room marked as ${status}` })
+      await refreshData()
+      setRoomDialogOpen(false)
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to update room status.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const toggleRoomBlockForSelectedDate = async (isBlocked: boolean) => {
+    if (!selectedRoom) return
+    try {
+      await setAvailabilityBlock(selectedRoom.id, selectedDateForRooms, "default", isBlocked, selectedRoom.inventory || 1)
+      toast({
+        title: isBlocked ? "Room blocked for selected date" : "Room unblocked for selected date",
+      })
+      await refreshData()
+      setRoomDialogOpen(false)
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to update room block.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const saveRoomMeta = async () => {
+    if (!selectedRoom) return
+    try {
+      await updateListing(selectedRoom.id, {
+        roomTypeDetail: roomTypeDraft,
+        pricePerUnit: Math.max(0, Number(priceDraft || 0)),
+      })
+      toast({ title: "Room details updated" })
+      await refreshData()
+      setRoomDialogOpen(false)
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to save room details.",
         variant: "destructive",
       })
     }
@@ -333,6 +486,95 @@ export default function AdminAvailabilityPage() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Settings className="h-4 w-4" />
+              Visual Room Availability
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="room-date" className="text-xs text-muted-foreground">
+                Date
+              </Label>
+              <Input
+                id="room-date"
+                type="date"
+                value={selectedDateForRooms}
+                onChange={(event) => setSelectedDateForRooms(event.target.value)}
+                className="w-[180px]"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <RoomLayoutMap
+            rooms={roomVisualItems}
+            onToggleRoom={openRoomEditor}
+            showAdminLegend
+          />
+        </CardContent>
+      </Card>
+
+      <Dialog open={roomDialogOpen} onOpenChange={setRoomDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {selectedRoom ? `Room ${selectedRoom.roomNumber || selectedRoom.title}` : "Room Controls"}
+            </DialogTitle>
+            <DialogDescription>
+              Manage maintenance, block/unblock, room type, and price.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Room Type</Label>
+                <Select
+                  value={roomTypeDraft}
+                  onValueChange={(value) => setRoomTypeDraft(value as "ac" | "non_ac")}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ac">AC</SelectItem>
+                    <SelectItem value="non_ac">Non-AC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Price</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={priceDraft}
+                  onChange={(event) => setPriceDraft(Number(event.target.value || 0))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" onClick={() => toggleRoomBlockForSelectedDate(true)}>
+                Block Room
+              </Button>
+              <Button variant="outline" onClick={() => toggleRoomBlockForSelectedDate(false)}>
+                Unblock Room
+              </Button>
+              <Button variant="outline" onClick={() => updateRoomStatus("maintenance")}>
+                Mark Maintenance
+              </Button>
+              <Button variant="outline" onClick={() => updateRoomStatus("available")}>
+                Mark Available
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={saveRoomMeta}>Save Room Details</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

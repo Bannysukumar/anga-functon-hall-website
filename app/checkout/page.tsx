@@ -41,6 +41,8 @@ interface CheckoutData {
   guestCount: number
   unitsBooked: number
   stayDays?: number
+  selectedRoomListingIds?: string[]
+  selectedRoomNumbers?: string[]
   selectedAddons: SelectedAddon[]
   basePrice: number
   addonsTotal: number
@@ -311,6 +313,8 @@ export default function CheckoutPage() {
           slotName: checkout.slotName,
           guestCount: checkout.guestCount,
           unitsBooked: checkout.unitsBooked,
+          selectedRoomListingIds: checkout.selectedRoomListingIds || [],
+          selectedRoomNumbers: checkout.selectedRoomNumbers || [],
           selectedAddons: checkout.selectedAddons.map((addon) => ({
             name: addon.name,
             quantity: addon.quantity,
@@ -598,6 +602,12 @@ export default function CheckoutPage() {
                     <Users className="h-4 w-4 shrink-0" />
                     <span>{checkout.guestCount} guest(s)</span>
                   </div>
+                  {checkout.selectedRoomNumbers && checkout.selectedRoomNumbers.length > 0 && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <span className="font-medium">Rooms:</span>
+                      <span>{checkout.selectedRoomNumbers.join(", ")}</span>
+                    </div>
+                  )}
                   {!!checkout.stayDays && checkout.stayDays > 1 && (
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Clock className="h-4 w-4 shrink-0" />

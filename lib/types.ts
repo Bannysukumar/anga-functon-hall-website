@@ -46,7 +46,9 @@ export interface Listing {
   id: string
   roomId?: string
   roomNumber?: string
+  floorNumber?: number
   roomTypeDetail?: "ac" | "non_ac"
+  roomStatus?: "available" | "blocked" | "maintenance"
   branchId: string
   title: string
   type: ListingType
@@ -110,6 +112,8 @@ export interface Booking {
   roomId?: string
   roomNumber?: string
   roomTypeDetail?: "ac" | "non_ac"
+  selectedRoomListingIds?: string[]
+  selectedRoomNumbers?: string[]
   userId: string
   listingId: string
   branchId: string

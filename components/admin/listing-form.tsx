@@ -37,7 +37,9 @@ interface ListingFormProps {
 const DEFAULT_LISTING = {
   roomId: "",
   roomNumber: "",
+  floorNumber: 1,
   roomTypeDetail: "ac" as const,
+  roomStatus: "available" as const,
   branchId: "",
   title: "",
   type: "function_hall" as ListingType,
@@ -71,7 +73,9 @@ function buildFormState(initialData?: Listing) {
     branchId: initialData.branchId || "",
     roomId: initialData.roomId || "",
     roomNumber: initialData.roomNumber || "",
+    floorNumber: Number(initialData.floorNumber || 1),
     roomTypeDetail: initialData.roomTypeDetail || "ac",
+    roomStatus: initialData.roomStatus || "available",
     title: initialData.title || "",
     type: initialData.type || DEFAULT_LISTING.type,
     description: initialData.description || "",
@@ -265,7 +269,8 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
         roomId: normalizedRoomId,
         roomNumber: String(form.roomNumber || "").trim(),
       })
-      router.push("/admin/listings")
+      router.replace("/admin/listings")
+      router.refresh()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save listing")
     }
@@ -353,6 +358,41 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
                   <SelectContent>
                     <SelectItem value="ac">AC</SelectItem>
                     <SelectItem value="non_ac">Non AC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Floor Number *</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.floorNumber}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      floorNumber: Math.max(1, Number(e.target.value || 1)),
+                    })
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Room Status</Label>
+                <Select
+                  value={form.roomStatus}
+                  onValueChange={(value) =>
+                    setForm({
+                      ...form,
+                      roomStatus: value as "available" | "blocked" | "maintenance",
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="available">Available</SelectItem>
+                    <SelectItem value="blocked">Blocked</SelectItem>
+                    <SelectItem value="maintenance">Maintenance</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

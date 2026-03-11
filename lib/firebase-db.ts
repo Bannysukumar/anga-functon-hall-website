@@ -41,7 +41,8 @@ import { DEFAULT_SETTINGS } from "./constants"
 // Generic helpers
 // =====================
 function docToType<T>(docSnap: DocumentData): T {
-  return { id: docSnap.id, ...docSnap.data() } as T
+  // Ensure Firestore document ID always wins over any persisted `id` field in data.
+  return { ...docSnap.data(), id: docSnap.id } as T
 }
 
 function normalizeRoomId(value: string) {
@@ -153,7 +154,12 @@ export async function createListing(
     minGuestCount,
     roomId: normalizedRoomId || "",
     roomNumber: String(data.roomNumber || "").trim(),
+    floorNumber:
+      data.floorNumber !== undefined && data.floorNumber !== null
+        ? Math.max(1, Number(data.floorNumber || 1))
+        : undefined,
     roomTypeDetail: data.roomTypeDetail || "ac",
+    roomStatus: data.roomStatus || "available",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -189,7 +195,11 @@ export async function updateListing(id: string, data: Partial<Listing>) {
     ...(minGuestCount !== undefined ? { minGuestCount } : {}),
     roomId: normalizedRoomId || "",
     roomNumber: String(data.roomNumber || "").trim(),
+    ...(data.floorNumber !== undefined
+      ? { floorNumber: Math.max(1, Number(data.floorNumber || 1)) }
+      : {}),
     roomTypeDetail: data.roomTypeDetail || "ac",
+    ...(data.roomStatus ? { roomStatus: data.roomStatus } : {}),
     updatedAt: serverTimestamp(),
   })
 }
