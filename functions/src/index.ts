@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin"
 import { onCall, HttpsError } from "firebase-functions/v2/https"
-import { onDocumentCreated } from "firebase-functions/v2/firestore"
+import { onDocumentCreated, onDocumentWritten } from "firebase-functions/v2/firestore"
 import { onSchedule } from "firebase-functions/v2/scheduler"
 import * as logger from "firebase-functions/logger"
 import { createHmac, timingSafeEqual } from "node:crypto"
@@ -92,7 +92,9 @@ async function getRuntimeSecureConfig(): Promise<RuntimeSecureConfig> {
       String(smtpData.smtpSecure ?? process.env.SMTP_SECURE ?? "false").toLowerCase() ===
       "true",
     smtpUser: String(smtpData.smtpUser || process.env.SMTP_USER || ""),
-    smtpPass: String(smtpData.smtpPass || process.env.SMTP_PASS || ""),
+    smtpPass: String(
+      smtpData.smtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || ""
+    ),
     smtpFromName: String(smtpData.smtpFromName || process.env.SMTP_FROM_NAME || "Anga Function Hall"),
     smtpFromEmail: String(smtpData.smtpFromEmail || process.env.SMTP_FROM_EMAIL || ""),
     adminNotificationEmail: String(
@@ -1072,6 +1074,196 @@ async function sendRewardEmail(params: {
     logger.error("Reward email failed", { userId: params.userId, error })
   }
 }
+
+type BookingLifecycleEvent =
+  | "BOOKING_CREATED"
+  | "BOOKING_CONFIRMED"
+  | "BOOKING_CANCELLED"
+  | "BOOKING_CHECKOUT"
+
+function lifecycleEventLabel(kind: BookingLifecycleEvent) {
+  if (kind === "BOOKING_CREATED") return "booking_created"
+  if (kind === "BOOKING_CONFIRMED") return "booking_confirmed"
+  if (kind === "BOOKING_CANCELLED") return "booking_cancelled"
+  return "checkout_completed"
+}
+
+function toDateDisplay(value: unknown) {
+  const date =
+    typeof value === "string"
+      ? new Date(value)
+      : (value as { toDate?: () => Date } | null)?.toDate?.() || null
+  if (!date || Number.isNaN(date.getTime())) return "-"
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: TIMEZONE,
+  })
+}
+
+async function sendBookingLifecycleEmail(params: {
+  event: BookingLifecycleEvent
+  bookingId: string
+  booking: Record<string, any>
+}) {
+  const { event, bookingId, booking } = params
+  const runtimeConfig = await getRuntimeSecureConfig()
+  const smtpTransport = await getSmtpTransportFromConfig(runtimeConfig)
+  const userId = String(booking.userId || "")
+  const userSnap = userId ? await db.collection("users").doc(userId).get() : null
+  const user = userSnap?.data() || {}
+  const toEmail = String(booking.customerEmail || user.email || "").trim()
+  const customerName = String(booking.customerName || user.displayName || user.name || "Customer")
+  const subjectByEvent: Record<BookingLifecycleEvent, string> = {
+    BOOKING_CREATED: "Booking Created - Anga Function Hall",
+    BOOKING_CONFIRMED: "Booking Confirmed - Anga Function Hall",
+    BOOKING_CANCELLED: "Booking Cancelled - Anga Function Hall",
+    BOOKING_CHECKOUT: "Checkout Completed - Anga Function Hall",
+  }
+  const bodyByEvent: Record<BookingLifecycleEvent, string> = {
+    BOOKING_CREATED:
+      "<p>Hello {customerName},</p><p>Your booking request has been created successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Status:</strong> {status}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Check-in:</strong> {checkInDate}</p><p><strong>Check-out:</strong> {checkOutDate}</p><p><strong>Total:</strong> INR {totalAmount}</p><p>Anga Function Hall Team</p>",
+    BOOKING_CONFIRMED:
+      "<p>Hello {customerName},</p><p>Your booking is now confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Check-in:</strong> {checkInDate}</p><p><strong>Check-out:</strong> {checkOutDate}</p><p><strong>Total:</strong> INR {totalAmount}</p><p>For support contact us at Anga Function Hall.</p>",
+    BOOKING_CANCELLED:
+      "<p>Hello {customerName},</p><p>Your booking has been cancelled.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Cancelled At:</strong> {cancelledAt}</p><p><strong>Status:</strong> {status}</p><p>If you need help, please contact Anga Function Hall support.</p>",
+    BOOKING_CHECKOUT:
+      "<p>Hello {customerName},</p><p>Your checkout has been completed successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Checkout At:</strong> {checkOutAt}</p><p><strong>Paid Amount:</strong> INR {paidAmount}</p><p>Thank you for choosing Anga Function Hall.</p>",
+  }
+  const templateValues = {
+    customerName,
+    bookingId,
+    status: String(booking.status || ""),
+    listingTitle: String(booking.listingTitle || "Anga Function Hall"),
+    checkInDate: toDateDisplay(booking.checkInDate),
+    checkOutDate: toDateDisplay(booking.checkOutDate),
+    cancelledAt: toDateDisplay(booking.cancelledAt),
+    checkOutAt: toDateDisplay(booking.checkOutAt),
+    totalAmount: Number(booking.totalAmount || 0).toLocaleString("en-IN"),
+    paidAmount: Number(booking.advancePaid || 0).toLocaleString("en-IN"),
+  }
+
+  if (!toEmail) {
+    await db.collection("emailLogs").add({
+      bookingId,
+      invoiceId: String(booking.invoiceId || ""),
+      toEmail: "",
+      status: "NOT_SENT",
+      error: "Customer email missing",
+      triggerEvent: lifecycleEventLabel(event),
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    })
+    return "failed" as const
+  }
+
+  if (!smtpTransport) {
+    await db.collection("emailLogs").add({
+      bookingId,
+      invoiceId: String(booking.invoiceId || ""),
+      toEmail,
+      status: "NOT_SENT",
+      error: "SMTP transport is not configured",
+      triggerEvent: lifecycleEventLabel(event),
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    })
+    return "pending" as const
+  }
+
+  const from = `"${runtimeConfig.smtpFromName || "Anga Function Hall"}" <${runtimeConfig.smtpFromEmail || runtimeConfig.smtpUser}>`
+  const subject = renderTemplate(subjectByEvent[event], templateValues)
+  const html = renderTemplate(bodyByEvent[event], templateValues)
+
+  let lastError = ""
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await smtpTransport.sendMail({
+        from,
+        to: toEmail,
+        subject,
+        html,
+      })
+      await db.collection("emailLogs").add({
+        bookingId,
+        invoiceId: String(booking.invoiceId || ""),
+        toEmail,
+        status: "SENT",
+        messageId: String(response.messageId || ""),
+        triggerEvent: lifecycleEventLabel(event),
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      })
+      return "sent" as const
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : "SMTP send failed"
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1000))
+      }
+    }
+  }
+
+  await db.collection("emailLogs").add({
+    bookingId,
+    invoiceId: String(booking.invoiceId || ""),
+    toEmail,
+    status: "FAILED",
+    error: lastError || "Unknown send error",
+    triggerEvent: lifecycleEventLabel(event),
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+  })
+  return "failed" as const
+}
+
+export const notifyBookingLifecycleEmail = onDocumentWritten(
+  "bookings/{bookingId}",
+  async (event) => {
+    const before = event.data?.before
+    const after = event.data?.after
+    if (!after?.exists) return
+
+    const bookingId = event.params.bookingId
+    const beforeData = (before?.data() || {}) as Record<string, any>
+    const afterData = (after.data() || {}) as Record<string, any>
+    const beforeStatus = String(beforeData.status || "")
+    const afterStatus = String(afterData.status || "")
+    const events: BookingLifecycleEvent[] = []
+
+    if (!before?.exists) {
+      events.push("BOOKING_CREATED")
+    }
+    if (afterStatus === "confirmed" && beforeStatus !== "confirmed") {
+      events.push("BOOKING_CONFIRMED")
+    }
+    if (afterStatus === "cancelled" && beforeStatus !== "cancelled") {
+      events.push("BOOKING_CANCELLED")
+    }
+    if (
+      (afterStatus === "checked_out" || afterStatus === "completed") &&
+      beforeStatus !== "checked_out" &&
+      beforeStatus !== "completed"
+    ) {
+      events.push("BOOKING_CHECKOUT")
+    }
+    if (events.length === 0) return
+
+    for (const lifecycleEvent of events) {
+      try {
+        await sendBookingLifecycleEmail({
+          event: lifecycleEvent,
+          bookingId,
+          booking: afterData,
+        })
+      } catch (error) {
+        logger.error("Booking lifecycle email failed", {
+          bookingId,
+          lifecycleEvent,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+  }
+)
 
 async function finalizeCheckout(params: {
   bookingId: string

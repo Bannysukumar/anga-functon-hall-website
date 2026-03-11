@@ -113,7 +113,10 @@ service cloud.firestore {
           request.resource.data.referrerName == resource.data.referrerName &&
           request.resource.data.referralCode == resource.data.referralCode &&
           request.resource.data.signupDate == resource.data.signupDate &&
-          request.resource.data.mobileNumber == resource.data.mobileNumber
+          request.resource.data.mobileNumber == resource.data.mobileNumber &&
+          request.resource.data.forcePasswordChange == resource.data.forcePasswordChange &&
+          request.resource.data.createdByAdminUid == resource.data.createdByAdminUid &&
+          request.resource.data.createdByAdminAt == resource.data.createdByAdminAt
         );
       allow delete: if isAdmin();
     }

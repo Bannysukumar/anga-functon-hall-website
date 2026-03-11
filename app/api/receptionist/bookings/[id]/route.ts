@@ -4,7 +4,6 @@ import { adminDb } from "@/lib/server/firebase-admin"
 import { requirePermission, toHttpError } from "@/lib/server/permission-check"
 import { updateBookingSchema } from "@/lib/server/receptionist-schemas"
 import { getRequestMeta, sanitizeText } from "@/lib/server/request-meta"
-import { sendBookingEmail } from "@/lib/server/booking-email"
 import { markReservationsCancelled, releaseBookingAvailability } from "@/lib/server/booking-cancellation"
 import { calculateRefundAmount } from "@/lib/server/refund-policy"
 
@@ -140,31 +139,6 @@ export async function PATCH(
     if (action === "cancel") {
       await releaseBookingAvailability(id, Number(current.unitsBooked || 1))
       await markReservationsCancelled(id)
-    }
-    let emailPayload: Record<string, unknown> = { ...current, ...updates }
-    if (action === "cancel" && current.userId) {
-      const userSnap = await adminDb.collection("users").doc(String(current.userId)).get()
-      const user = userSnap.exists ? userSnap.data() : {}
-      emailPayload = {
-        ...emailPayload,
-        customerEmail: (emailPayload as { customerEmail?: string }).customerEmail || (user as { email?: string }).email,
-        customerName: (emailPayload as { customerName?: string }).customerName || (user as { displayName?: string; name?: string }).displayName || (user as { name?: string }).name,
-      }
-    }
-    try {
-      if (action === "cancel") {
-        await sendBookingEmail("BOOKING_CANCELLED", id, emailPayload as Parameters<typeof sendBookingEmail>[2])
-      } else if (action === "check_out") {
-        await sendBookingEmail("BOOKING_CHECKOUT", id, emailPayload)
-      } else if (action === "edit") {
-        await sendBookingEmail("BOOKING_UPDATED", id, emailPayload)
-      }
-    } catch (error) {
-      console.error("Booking email dispatch failed", {
-        bookingId: id,
-        action,
-        error: error instanceof Error ? error.message : String(error),
-      })
     }
     await adminDb.collection("auditLogs").add({
       entity: "booking",

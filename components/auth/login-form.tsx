@@ -22,6 +22,7 @@ export function LoginForm() {
 
   async function resolvePostLoginRoute(uid: string) {
     const appUser = await getUser(uid)
+    if (Boolean(appUser?.forcePasswordChange)) return "/force-password-change"
     const role = String(appUser?.role || "user")
     if (role === "admin") return "/admin-dashboard"
     return "/dashboard"

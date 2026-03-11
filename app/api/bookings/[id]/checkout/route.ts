@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { Timestamp } from "firebase-admin/firestore"
 import { adminAuth, adminDb } from "@/lib/server/firebase-admin"
-import { sendBookingEmail } from "@/lib/server/booking-email"
 
 function readBearerToken(request: Request) {
   const auth = request.headers.get("authorization") || ""
@@ -56,13 +55,6 @@ export async function POST(
       updatedAt: Timestamp.now(),
     }
     await ref.set(updates, { merge: true })
-
-    const payload = { ...current, ...updates }
-    try {
-      await sendBookingEmail("BOOKING_CHECKOUT", id, payload)
-    } catch (emailError) {
-      console.error("Checkout email failed", { bookingId: id, error: emailError })
-    }
 
     await adminDb.collection("auditLogs").add({
       entity: "booking",

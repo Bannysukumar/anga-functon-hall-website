@@ -3,7 +3,6 @@ import { Timestamp } from "firebase-admin/firestore"
 import { adminDb } from "@/lib/server/firebase-admin"
 import { verifyRazorpayWebhookSignature } from "@/lib/server/razorpay-webhook"
 import { createBookingFromIntent } from "@/lib/server/create-booking-from-intent"
-import { sendBookingEmail } from "@/lib/server/booking-email"
 
 const WEBHOOK_EVENTS = ["payment.captured", "payment.failed"] as const
 
@@ -112,15 +111,6 @@ export async function POST(request: Request) {
     }
     try {
       const result = await createBookingFromIntent(intentId, orderId, paymentId, userId)
-      const bookingSnap = await adminDb.collection("bookings").doc(result.bookingId).get()
-      const bookingData = bookingSnap.data()
-      try {
-        if (bookingData?.customerEmail) {
-          await sendBookingEmail("BOOKING_CONFIRMATION", result.bookingId, bookingData)
-        }
-      } catch (e) {
-        console.error("[Razorpay Webhook] Booking confirmation email failed:", e)
-      }
       return NextResponse.json({ received: true, bookingId: result.bookingId })
     } catch (err) {
       console.error("[Razorpay Webhook] createBookingFromIntent failed:", err)

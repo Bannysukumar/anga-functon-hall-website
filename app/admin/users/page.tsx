@@ -1,11 +1,9 @@
 "use client"
 
 import {
-  createAuditLog,
   getAllUsers,
   getBookings,
   getListings,
-  updateUser,
 } from "@/lib/firebase-db"
 import type { AppUser, Booking, Listing } from "@/lib/types"
 import { useEffect, useState } from "react"
@@ -45,16 +43,23 @@ import {
   Shield,
   UserCog,
   Eye,
+  Plus,
+  RefreshCw,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/hooks/use-auth"
-import { resetPassword } from "@/lib/firebase-auth"
+import {
+  adminCreateUser,
+  adminEditUser,
+  adminResendCredentials,
+  adminSetUserStatus,
+} from "@/lib/admin-user-functions"
 
 const DETAILS_PAGE_SIZE = 5
 
 export default function AdminUsersPage() {
   const { toast } = useToast()
-  const { user: authUser, hasPermission, isAdminUser } = useAuth()
+  const { hasPermission, isAdminUser } = useAuth()
   const [users, setUsers] = useState<AppUser[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -66,6 +71,21 @@ export default function AdminUsersPage() {
   const [selectedUserFavorites, setSelectedUserFavorites] = useState<Listing[]>([])
   const [bookingsPage, setBookingsPage] = useState(1)
   const [favoritesPage, setFavoritesPage] = useState(1)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    email: "",
+    mobileNumber: "",
+    role: "user",
+  })
+  const [editForm, setEditForm] = useState({
+    name: "",
+    email: "",
+    mobileNumber: "",
+    role: "user",
+  })
 
   const loadUsers = async () => {
     setLoading(true)
@@ -93,20 +113,9 @@ export default function AdminUsersPage() {
       return
     }
     try {
-      await updateUser(user.id, { isBlocked: !user.isBlocked })
-      await createAuditLog({
-        entity: "user",
-        entityId: user.id,
-        action: user.isBlocked ? "UNBLOCK" : "BLOCK",
-        message: `${user.isBlocked ? "Unblocked" : "Blocked"} user ${user.email}`,
-        payload: {
-          email: user.email,
-          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
-        },
-        createdBy: authUser?.uid || "",
-      })
+      await adminSetUserStatus(user.id, !user.isBlocked)
       toast({
-        title: user.isBlocked ? "User unblocked" : "User blocked",
+        title: user.isBlocked ? "User enabled" : "User disabled",
       })
       loadUsers()
     } catch {
@@ -133,7 +142,7 @@ export default function AdminUsersPage() {
 
   const handleRoleUpdate = async (
     user: AppUser,
-    role: "user" | "admin" | "receptionist"
+    role: "user" | "admin" | "receptionist" | "staff" | "cleaner" | "watchman"
   ) => {
     if (!isAdminUser) {
       toast({
@@ -153,18 +162,11 @@ export default function AdminUsersPage() {
       return
     }
     try {
-      await updateUser(user.id, { role })
-      await createAuditLog({
-        entity: "user",
-        entityId: user.id,
-        action: "ROLE_UPDATE",
-        message: `Changed role to ${role} for ${user.email}`,
-        payload: {
-          previousRole: user.role || "user",
-          nextRole: role,
-          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
-        },
-        createdBy: authUser?.uid || "",
+      await adminEditUser(user.id, {
+        name: user.displayName || "",
+        email: user.email || "",
+        mobileNumber: user.mobileNumber || user.phone || "",
+        role,
       })
       toast({
         title: `Role updated to ${role}`,
@@ -189,20 +191,14 @@ export default function AdminUsersPage() {
       return
     }
     try {
-      await resetPassword(user.email)
-      await createAuditLog({
-        entity: "user",
-        entityId: user.id,
-        action: "PASSWORD_RESET",
-        message: `Password reset email sent to ${user.email}`,
-        payload: {
-          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
-        },
-        createdBy: authUser?.uid || "",
-      })
+      const result = await adminResendCredentials(user.id, "reset")
       toast({
-        title: "Password reset sent",
-        description: `Reset link sent to ${user.email}`,
+        title: result.emailSent
+          ? "Password reset and credentials sent"
+          : "Password reset done, email failed",
+        description: result.emailSent
+          ? `New credentials sent to ${user.email}`
+          : "User password was reset but email delivery failed.",
       })
     } catch {
       toast({
@@ -210,6 +206,96 @@ export default function AdminUsersPage() {
         description: "Failed to send password reset email.",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleCreateUser = async () => {
+    if (!isAdminUser) {
+      toast({ title: "Permission denied", description: "Only admins can create users.", variant: "destructive" })
+      return
+    }
+    setBusy(true)
+    try {
+      const result = await adminCreateUser(createForm)
+      setCreateOpen(false)
+      setCreateForm({ name: "", email: "", mobileNumber: "", role: "user" })
+      toast({
+        title: result.emailSent ? "User created and credentials emailed" : "User created, email failed",
+        description: result.emailSent ? "Login credentials sent successfully." : "User created but email delivery failed.",
+        variant: result.emailSent ? "default" : "destructive",
+      })
+      if (!result.emailSent && result.warning) {
+        toast({
+          title: "Email error details",
+          description: result.warning,
+          variant: "destructive",
+        })
+      }
+      await loadUsers()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create user.",
+        variant: "destructive",
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleResendCredentials = async (user: AppUser) => {
+    try {
+      const result = await adminResendCredentials(user.id, "resend")
+      toast({
+        title: result.emailSent ? "Credentials sent" : "Email delivery failed",
+        description: result.emailSent
+          ? `Credentials sent to ${user.email}`
+          : "Credentials were reset but email delivery failed.",
+        variant: result.emailSent ? "default" : "destructive",
+      })
+      if (!result.emailSent && result.warning) {
+        toast({
+          title: "Email error details",
+          description: result.warning,
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to resend credentials.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const openEditUser = (user: AppUser) => {
+    setSelectedUser(user)
+    setEditForm({
+      name: user.displayName || "",
+      email: user.email || "",
+      mobileNumber: user.mobileNumber || user.phone || "",
+      role: String(user.role || "user"),
+    })
+    setEditOpen(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!selectedUser) return
+    setBusy(true)
+    try {
+      await adminEditUser(selectedUser.id, editForm)
+      setEditOpen(false)
+      toast({ title: "User details updated" })
+      await loadUsers()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update user.",
+        variant: "destructive",
+      })
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -283,14 +369,20 @@ export default function AdminUsersPage() {
               <Users className="h-4 w-4" />
               All Users
             </CardTitle>
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search users..."
-                className="pl-9"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative w-64">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search users..."
+                  className="pl-9"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <Button onClick={() => setCreateOpen(true)} disabled={!isAdminUser}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create User
+              </Button>
             </div>
           </div>
           <div className="mt-3 flex gap-2">
@@ -422,6 +514,27 @@ export default function AdminUsersPage() {
                                 Set as Receptionist
                               </DropdownMenuItem>
                               <DropdownMenuItem
+                                onClick={() => handleRoleUpdate(u, "staff")}
+                                disabled={!isAdminUser}
+                              >
+                                <UserCog className="mr-2 h-4 w-4" />
+                                Set as Staff
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleRoleUpdate(u, "cleaner")}
+                                disabled={!isAdminUser}
+                              >
+                                <UserCog className="mr-2 h-4 w-4" />
+                                Set as Cleaner
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleRoleUpdate(u, "watchman")}
+                                disabled={!isAdminUser}
+                              >
+                                <UserCog className="mr-2 h-4 w-4" />
+                                Set as Watchman
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
                                 onClick={() => handleRoleUpdate(u, "user")}
                                 disabled={!isAdminUser}
                               >
@@ -435,14 +548,28 @@ export default function AdminUsersPage() {
                                 {u.isBlocked ? (
                                   <>
                                     <Shield className="mr-2 h-4 w-4" />
-                                    Unblock User
+                                    Enable User
                                   </>
                                 ) : (
                                   <>
                                     <ShieldOff className="mr-2 h-4 w-4" />
-                                    Block User
+                                    Disable User
                                   </>
                                 )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => openEditUser(u)}
+                                disabled={!isAdminUser}
+                              >
+                                <UserCog className="mr-2 h-4 w-4" />
+                                Edit User Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleResendCredentials(u)}
+                                disabled={!isAdminUser}
+                              >
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                Resend Login Credentials
                               </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => openUserDetails(u)}>
                                 <Eye className="mr-2 h-4 w-4" />
@@ -453,7 +580,7 @@ export default function AdminUsersPage() {
                                 disabled={!isAdminUser}
                               >
                                 <Shield className="mr-2 h-4 w-4" />
-                                Reset Password
+                                Reset Password (New Credentials)
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -660,6 +787,88 @@ export default function AdminUsersPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create User</DialogTitle>
+            <DialogDescription>
+              Password is generated automatically and sent via email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="User name"
+              value={createForm.name}
+              onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+            />
+            <Input
+              placeholder="Email"
+              type="email"
+              value={createForm.email}
+              onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
+            />
+            <Input
+              placeholder="Mobile number"
+              value={createForm.mobileNumber}
+              onChange={(e) =>
+                setCreateForm((f) => ({
+                  ...f,
+                  mobileNumber: e.target.value.replace(/\D/g, "").slice(0, 10),
+                }))
+              }
+            />
+            <Input
+              placeholder="Role (user/staff/receptionist/cleaner/watchman/admin)"
+              value={createForm.role}
+              onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value.toLowerCase() }))}
+            />
+            <Button onClick={handleCreateUser} disabled={busy} className="w-full">
+              {busy ? "Creating..." : "Create User"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit User Details</DialogTitle>
+            <DialogDescription>Update user profile fields and role.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="User name"
+              value={editForm.name}
+              onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+            />
+            <Input
+              placeholder="Email"
+              type="email"
+              value={editForm.email}
+              onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+            />
+            <Input
+              placeholder="Mobile number"
+              value={editForm.mobileNumber}
+              onChange={(e) =>
+                setEditForm((f) => ({
+                  ...f,
+                  mobileNumber: e.target.value.replace(/\D/g, "").slice(0, 10),
+                }))
+              }
+            />
+            <Input
+              placeholder="Role (user/staff/receptionist/cleaner/watchman/admin)"
+              value={editForm.role}
+              onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value.toLowerCase() }))}
+            />
+            <Button onClick={handleSaveEdit} disabled={busy} className="w-full">
+              {busy ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -2,7 +2,14 @@ import { Timestamp } from "firebase-admin/firestore"
 import nodemailer from "nodemailer"
 import { adminDb } from "@/lib/server/firebase-admin"
 
-type EmailKind = "BOOKING_CONFIRMATION" | "BOOKING_UPDATED" | "BOOKING_CHECKOUT" | "BOOKING_CANCELLED"
+type EmailKind =
+  | "BOOKING_CREATED"
+  | "BOOKING_CONFIRMATION"
+  | "BOOKING_UPDATED"
+  | "BOOKING_CHECKOUT"
+  | "BOOKING_CANCELLED"
+
+let smtpProbePromise: Promise<void> | null = null
 
 async function getSmtpConfig() {
   const smtpSnap = await adminDb.collection("secureSettings").doc("smtp").get()
@@ -11,13 +18,40 @@ async function getSmtpConfig() {
   const port = Number(smtp.smtpPort || process.env.SMTP_PORT || 587)
   const secure = String(smtp.smtpSecure ?? process.env.SMTP_SECURE ?? "false").toLowerCase() === "true"
   const user = String(smtp.smtpUser || process.env.SMTP_USER || "").trim()
-  const pass = String(smtp.smtpPass || process.env.SMTP_PASS || "").trim()
+  const pass = String(smtp.smtpPass || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || "").trim()
   const fromName = String(smtp.smtpFromName || process.env.SMTP_FROM_NAME || "Anga Function Hall").trim()
   const fromEmail = String(smtp.smtpFromEmail || process.env.SMTP_FROM_EMAIL || user || "").trim()
   if (!host || !user || !pass || !fromEmail) {
     throw new Error("SMTP_NOT_CONFIGURED")
   }
   return { host, port, secure, user, pass, fromName, fromEmail }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function ensureSmtpProbe() {
+  if (smtpProbePromise) {
+    await smtpProbePromise
+    return
+  }
+  smtpProbePromise = (async () => {
+    try {
+      const smtp = await getSmtpConfig()
+      const transport = nodemailer.createTransport({
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
+        auth: { user: smtp.user, pass: smtp.pass },
+      })
+      await transport.verify()
+      console.info("[booking-email] SMTP connection verified")
+    } catch (error) {
+      console.error("[booking-email] SMTP connection probe failed", error)
+    }
+  })()
+  await smtpProbePromise
 }
 
 function renderTemplate(template: string, values: Record<string, string | number>) {
@@ -63,12 +97,14 @@ async function sendWithRetry(input: {
   kind: EmailKind
 }) {
   const smtp = await getSmtpConfig()
+  await ensureSmtpProbe()
   const transport = nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port,
     secure: smtp.secure,
     auth: { user: smtp.user, pass: smtp.pass },
   })
+  await transport.verify()
 
   let lastError = ""
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -89,6 +125,9 @@ async function sendWithRetry(input: {
       return "sent" as const
     } catch (error) {
       lastError = error instanceof Error ? error.message : "SMTP send failed"
+      if (attempt < 3) {
+        await delay(attempt * 1000)
+      }
     }
   }
 
@@ -136,6 +175,18 @@ export async function sendBookingEmail(
     EmailKind,
     { subject: string; body: string }
   > = {
+    BOOKING_CREATED: {
+      subject: "Booking Created - Anga Function Hall",
+      body: `
+        <p>Hello {customerName},</p>
+        <p>Your booking request has been created successfully.</p>
+        <p><strong>Booking ID:</strong> {bookingId}</p>
+        <p><strong>Event Date:</strong> {eventDate}</p>
+        <p><strong>Hall/Room:</strong> {hallName}</p>
+        <p><strong>Booking Amount:</strong> INR {amount}</p>
+        <p><strong>Status:</strong> {bookingStatus}</p>
+      `,
+    },
     BOOKING_CONFIRMATION: {
       subject: "Your Booking Confirmation - Anga Function Hall",
       body: `
@@ -188,12 +239,16 @@ export async function sendBookingEmail(
   const templateSubject =
     kind === "BOOKING_CONFIRMATION"
       ? String(settings.bookingEmailSubjectTemplate || defaults.BOOKING_CONFIRMATION.subject)
+      : kind === "BOOKING_CREATED"
+        ? String(settings.bookingCreatedEmailSubjectTemplate || defaults.BOOKING_CREATED.subject)
       : kind === "BOOKING_CHECKOUT"
         ? String(settings.checkoutEmailSubjectTemplate || defaults.BOOKING_CHECKOUT.subject)
         : defaults[kind].subject
   const templateBody =
     kind === "BOOKING_CONFIRMATION"
       ? String(settings.bookingEmailHtmlTemplate || defaults.BOOKING_CONFIRMATION.body)
+      : kind === "BOOKING_CREATED"
+        ? String(settings.bookingCreatedEmailHtmlTemplate || defaults.BOOKING_CREATED.body)
       : kind === "BOOKING_CHECKOUT"
         ? String(settings.checkoutEmailHtmlTemplate || defaults.BOOKING_CHECKOUT.body)
         : defaults[kind].body

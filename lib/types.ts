@@ -238,11 +238,13 @@ export interface AppUser {
   photoURL: string
   favorites: string[]
   isBlocked: boolean
-  role?: "user" | "admin" | "receptionist"
+  role?: "user" | "admin" | "receptionist" | "staff" | "cleaner" | "watchman"
   referralCode?: string
   referredByCode?: string | null
   referredBy?: string | null
   referrerName?: string | null
+  forcePasswordChange?: boolean
+  createdByAdminUid?: string
   createdAt: Timestamp
 }
 

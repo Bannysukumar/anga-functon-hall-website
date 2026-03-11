@@ -10,7 +10,7 @@ import { Alert } from "@/components/ui/alert"
 type PermissionGuardProps = {
   children: ReactNode
   requiredPermissions?: Permission[]
-  allowedRoles?: Array<"admin" | "receptionist" | "user">
+  allowedRoles?: Array<"admin" | "receptionist" | "user" | "staff" | "cleaner" | "watchman">
 }
 
 export function PermissionGuard({

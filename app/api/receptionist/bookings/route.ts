@@ -8,7 +8,6 @@ import {
 } from "@/lib/server/receptionist-schemas"
 import { getRequestMeta, sanitizeText } from "@/lib/server/request-meta"
 import { buildBookingConfirmationMessage, sendWhatsAppMessage } from "@/lib/server/whatsapp"
-import { sendBookingEmail } from "@/lib/server/booking-email"
 
 function toInvoiceNumber(counter: number) {
   const year = new Date().getFullYear()
@@ -398,15 +397,6 @@ export async function POST(request: Request) {
         { merge: true }
       )
     }
-    try {
-      await sendBookingEmail("BOOKING_CONFIRMATION", String(result.bookingId), result)
-    } catch (error) {
-      console.error("Booking confirmation email dispatch failed", {
-        bookingId: result.bookingId,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-
     return NextResponse.json(result)
   } catch (error) {
     if ((error as { name?: string })?.name === "ZodError") {

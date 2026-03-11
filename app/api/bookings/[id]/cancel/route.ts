@@ -3,7 +3,6 @@ import { Timestamp } from "firebase-admin/firestore"
 import { adminAuth, adminDb } from "@/lib/server/firebase-admin"
 import { markReservationsCancelled, releaseBookingAvailability } from "@/lib/server/booking-cancellation"
 import { calculateRefundAmount } from "@/lib/server/refund-policy"
-import { sendBookingEmail } from "@/lib/server/booking-email"
 
 function readBearerToken(request: Request) {
   const auth = request.headers.get("authorization") || ""
@@ -81,22 +80,6 @@ export async function POST(
       createdBy: decoded.uid,
       createdAt: Timestamp.now(),
     })
-
-    try {
-      const userSnap = await adminDb.collection("users").doc(String(current.userId || "")).get()
-      const user = userSnap.exists ? (userSnap.data() || {}) : {}
-      const emailPayload = {
-        ...current,
-        status: "cancelled",
-        refundStatus: advancePaid > 0 ? "refund_requested" : current.refundStatus,
-        refundAmount: advancePaid > 0 ? refundAmount : current.refundAmount,
-        customerEmail: user.email || current.customerEmail,
-        customerName: user.displayName || user.name || current.customerName,
-      }
-      await sendBookingEmail("BOOKING_CANCELLED", id, emailPayload)
-    } catch (e) {
-      console.error("Cancel notification email failed", e)
-    }
 
     return NextResponse.json({ ok: true })
   } catch {
