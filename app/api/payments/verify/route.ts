@@ -9,6 +9,13 @@ function readBearerToken(request: Request): string {
   return authHeader.slice("Bearer ".length).trim()
 }
 
+async function resolveRazorpaySecret(): Promise<string> {
+  const secureSnap = await adminDb.collection("secureSettings").doc("razorpay").get()
+  const secureSecret = String(secureSnap.data()?.razorpaySecretKey || "").trim()
+  const envSecret = String(process.env.RAZORPAY_KEY_SECRET || "").trim()
+  return secureSecret || envSecret
+}
+
 export async function POST(request: Request) {
   try {
     const idToken = readBearerToken(request)
@@ -71,7 +78,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET
+    const razorpayKeySecret = await resolveRazorpaySecret()
     if (!razorpayKeySecret) {
       return NextResponse.json(
         { verified: false, error: "Razorpay secret key not configured." },
