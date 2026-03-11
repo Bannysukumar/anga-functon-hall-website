@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/lib/hooks/use-auth"
 import type { Permission } from "@/lib/types"
 import { Loader2 } from "lucide-react"
+import { Alert } from "@/components/ui/alert"
 
 function getRoutePermissions(pathname: string): Permission[] {
   if (pathname.endsWith("/bookings")) return ["BOOKINGS_VIEW"]
@@ -30,22 +31,31 @@ export default function DashboardOperationsLayout({
 }: {
   children: React.ReactNode
 }) {
-  const { loading, isAdminUser, hasAnyPermission } = useAuth()
+  const { loading, isAdminUser, hasAnyPermission, authorizationError } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const allowed =
     isAdminUser || hasAnyPermission(getRoutePermissions(pathname))
 
   useEffect(() => {
+    if (authorizationError) return
     if (!loading && !allowed) {
       router.replace("/access-denied")
     }
-  }, [allowed, loading, router])
+  }, [allowed, authorizationError, loading, router])
 
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (authorizationError) {
+    return (
+      <div className="mx-auto w-full max-w-xl">
+        <Alert>{authorizationError}</Alert>
       </div>
     )
   }

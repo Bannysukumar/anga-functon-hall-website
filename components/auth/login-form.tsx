@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { isAdmin, logIn, logInWithGoogle } from "@/lib/firebase-auth"
+import { logIn, logInWithGoogle } from "@/lib/firebase-auth"
+import { getUser } from "@/lib/firebase-db"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -18,6 +19,13 @@ export function LoginForm() {
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+
+  async function resolvePostLoginRoute(uid: string) {
+    const appUser = await getUser(uid)
+    const role = String(appUser?.role || "user")
+    if (role === "admin") return "/admin-dashboard"
+    return "/dashboard"
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -35,8 +43,9 @@ export function LoginForm() {
       if (typeof window !== "undefined") {
         window.localStorage.removeItem(LOGIN_RATE_LIMIT_KEY)
       }
+      const nextRoute = await resolvePostLoginRoute(user.uid)
       toast.success("Welcome back!")
-      router.push(isAdmin(user) ? "/admin" : "/dashboard")
+      router.push(nextRoute)
     } catch (error: unknown) {
       if (typeof window !== "undefined") {
         const current =
@@ -57,8 +66,9 @@ export function LoginForm() {
     setLoading(true)
     try {
       const user = await logInWithGoogle()
+      const nextRoute = await resolvePostLoginRoute(user.uid)
       toast.success("Welcome!")
-      router.push(isAdmin(user) ? "/admin" : "/dashboard")
+      router.push(nextRoute)
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Google login failed."

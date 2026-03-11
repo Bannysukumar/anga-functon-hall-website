@@ -18,6 +18,7 @@ interface AuthContextType {
   staffProfile: StaffProfile | null
   permissions: Permission[]
   loading: boolean
+  authorizationError: string | null
   isAdminUser: boolean
   hasPermission: (permission: Permission) => boolean
   hasAnyPermission: (permissions: Permission[]) => boolean
@@ -69,6 +70,7 @@ const AuthContext = createContext<AuthContextType>({
   staffProfile: null,
   permissions: [],
   loading: true,
+  authorizationError: null,
   isAdminUser: false,
   hasPermission: () => false,
   hasAnyPermission: () => false,
@@ -81,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [staffProfile, setStaffProfile] = useState<StaffProfile | null>(null)
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [loading, setLoading] = useState(true)
+  const [authorizationError, setAuthorizationError] = useState<string | null>(null)
   const [isAdminUser, setIsAdminUser] = useState(false)
 
   const loadPermissionContext = async (firebaseUser: User) => {
@@ -88,6 +91,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getUser(firebaseUser.uid),
       getStaffProfile(firebaseUser.uid),
     ])
+    if (!userData) {
+      throw new Error("Unable to verify account permissions. Please refresh.")
+    }
     setAppUser(userData)
     setStaffProfile(staffData)
     const adminUser = userData?.role === "admin"
@@ -128,19 +134,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true)
       setUser(firebaseUser)
 
-      if (firebaseUser) {
-        // Refresh token so newly assigned custom claims are available immediately.
-        await firebaseUser.getIdToken(true)
-        await loadPermissionContext(firebaseUser)
-      } else {
+      try {
+        if (firebaseUser) {
+          setAuthorizationError(null)
+          // Refresh token so newly assigned custom claims are available immediately.
+          await firebaseUser.getIdToken(true)
+          await loadPermissionContext(firebaseUser)
+        } else {
+          setAuthorizationError(null)
+          setIsAdminUser(false)
+          setAppUser(null)
+          setStaffProfile(null)
+          setPermissions([])
+        }
+      } catch (error) {
         setIsAdminUser(false)
         setAppUser(null)
         setStaffProfile(null)
         setPermissions([])
+        setAuthorizationError(
+          error instanceof Error
+            ? error.message
+            : "Unable to verify account permissions. Please refresh."
+        )
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     })
 
     return () => unsubscribe()
@@ -161,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         staffProfile,
         permissions,
         loading,
+        authorizationError,
         isAdminUser,
         hasPermission: hasPermissionWithAliases,
         hasAnyPermission: (items: Permission[]) =>

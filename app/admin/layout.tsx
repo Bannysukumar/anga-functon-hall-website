@@ -15,6 +15,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { Spinner } from "@/components/ui/spinner"
+import { Alert } from "@/components/ui/alert"
 
 export default function AdminLayout({
   children,
@@ -31,7 +32,21 @@ export default function AdminLayout({
 function AdminLayoutInner({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
-  const { user, loading, isAdminUser } = useAuth()
+  const { user, loading, isAdminUser, authorizationError } = useAuth()
+
+  const allowed = isAdminUser
+
+  useEffect(() => {
+    if (loading) return
+    if (!user) {
+      router.replace("/login")
+      return
+    }
+    if (authorizationError) return
+    if (!allowed) {
+      router.replace("/access-denied")
+    }
+  }, [allowed, authorizationError, loading, router, user])
 
   if (loading) {
     return (
@@ -43,13 +58,13 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
   if (!user) return null
 
-  const allowed = isAdminUser
-
-  useEffect(() => {
-    if (!allowed) {
-      router.replace("/access-denied")
-    }
-  }, [allowed, router])
+  if (authorizationError) {
+    return (
+      <div className="mx-auto mt-8 w-full max-w-xl">
+        <Alert>{authorizationError}</Alert>
+      </div>
+    )
+  }
 
   if (!allowed) return null
 
