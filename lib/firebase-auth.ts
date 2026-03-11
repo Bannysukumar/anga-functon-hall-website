@@ -3,13 +3,11 @@ import {
   deleteUser,
   signInWithEmailAndPassword,
   signOut,
-  sendPasswordResetEmail,
   updateProfile,
   GoogleAuthProvider,
   signInWithPopup,
 } from "firebase/auth"
-import { doc, getDoc } from "firebase/firestore"
-import { auth, db } from "./firebase"
+import { auth } from "./firebase"
 
 const googleProvider = new GoogleAuthProvider()
 
@@ -56,15 +54,36 @@ export async function logIn(email: string, password: string) {
 }
 
 export async function logInWithGoogle() {
-  const cred = await signInWithPopup(auth, googleProvider)
-  const userDoc = await getDoc(doc(db, "users", cred.user.uid))
-  if (!userDoc.exists()) {
-    await signOut(auth)
-    throw new Error(
-      "Google signup is disabled. Please create your account using mobile number and referral code."
-    )
+  try {
+    const cred = await signInWithPopup(auth, googleProvider)
+    const idToken = await cred.user.getIdToken()
+    const response = await fetch("/api/auth/google-onboard", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: cred.user.email || "",
+        displayName: cred.user.displayName || "",
+        photoURL: cred.user.photoURL || "",
+      }),
+    })
+    const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+    if (!response.ok || !payload.ok) {
+      await signOut(auth)
+      throw new Error(payload.error || "Google sign-in failed.")
+    }
+    return cred.user
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code
+    if (code === "auth/operation-not-allowed") {
+      throw new Error(
+        "Google sign-in is currently disabled in Firebase Authentication. Please enable the Google provider in Firebase Console or sign in with email and password."
+      )
+    }
+    throw error
   }
-  return cred.user
 }
 
 export async function logOut() {
@@ -72,6 +91,14 @@ export async function logOut() {
 }
 
 export async function resetPassword(email: string) {
-  await sendPasswordResetEmail(auth, email)
+  const response = await fetch("/api/auth/forgot-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as { error?: string }
+  if (!response.ok) {
+    throw new Error(payload.error || "Failed to send reset email")
+  }
 }
 

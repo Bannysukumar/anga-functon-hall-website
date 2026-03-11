@@ -83,6 +83,7 @@ export interface Listing {
 export type BookingStatus =
   | "pending"
   | "confirmed"
+  | "expired"
   | "checked_in"
   | "checked_out"
   | "completed"

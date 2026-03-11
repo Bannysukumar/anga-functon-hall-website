@@ -10,6 +10,12 @@ function readBearerToken(request: Request) {
   return auth.slice("Bearer ".length).trim()
 }
 
+function startOfDay(value: Date) {
+  const next = new Date(value)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -33,6 +39,17 @@ export async function POST(
     const status = String(current.status || "")
     if (!["pending", "confirmed"].includes(status)) {
       return NextResponse.json({ error: "Booking cannot be cancelled." }, { status: 409 })
+    }
+    const today = startOfDay(new Date())
+    const checkInDate = (current.checkInDate as { toDate?: () => Date } | undefined)?.toDate?.()
+    if (checkInDate) {
+      const checkInDay = startOfDay(checkInDate)
+      if (today.getTime() >= checkInDay.getTime()) {
+        return NextResponse.json(
+          { error: "Booking can only be cancelled before the check-in date." },
+          { status: 409 }
+        )
+      }
     }
 
     let cancellationReason = ""

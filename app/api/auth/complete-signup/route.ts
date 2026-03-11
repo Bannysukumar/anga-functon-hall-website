@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto"
 import { NextResponse } from "next/server"
 import { FieldValue } from "firebase-admin/firestore"
 import { adminAuth, adminDb } from "@/lib/server/firebase-admin"
+import { sendSignupSuccessEmail } from "@/lib/server/auth-email"
 
 function readBearerToken(request: Request): string {
   const authHeader = request.headers.get("authorization") || ""
@@ -199,6 +200,10 @@ export async function POST(request: Request) {
     if (!createdReferralCode) {
       return NextResponse.json({ error: "Could not generate referral code. Please retry." }, { status: 500 })
     }
+
+    sendSignupSuccessEmail(email, displayName).catch((error) => {
+      console.error("[complete-signup] Failed to send signup success email", error)
+    })
 
     return NextResponse.json({
       ok: true,

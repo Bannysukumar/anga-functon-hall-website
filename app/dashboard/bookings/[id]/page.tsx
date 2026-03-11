@@ -44,6 +44,12 @@ import {
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
 
+function startOfDay(value: Date) {
+  const next = new Date(value)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
 export default function BookingDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -132,16 +138,18 @@ export default function BookingDetailPage() {
     )
   }
 
-  const checkIn = booking.checkInDate?.toDate
-    ? booking.checkInDate.toDate().toLocaleDateString("en-IN", {
+  const checkInDateValue = booking.checkInDate?.toDate ? booking.checkInDate.toDate() : null
+  const checkOutDateValue = booking.checkOutDate?.toDate ? booking.checkOutDate.toDate() : null
+  const checkIn = checkInDateValue
+    ? checkInDateValue.toLocaleDateString("en-IN", {
         day: "numeric",
         month: "long",
         year: "numeric",
       })
     : "N/A"
 
-  const checkOut = booking.checkOutDate?.toDate
-    ? booking.checkOutDate.toDate().toLocaleDateString("en-IN", {
+  const checkOut = checkOutDateValue
+    ? checkOutDateValue.toLocaleDateString("en-IN", {
         day: "numeric",
         month: "long",
         year: "numeric",
@@ -155,10 +163,26 @@ export default function BookingDetailPage() {
     ? booking.scheduledCheckInAt.toDate()
     : null
 
+  const todayStart = startOfDay(new Date())
+  const checkInStart = checkInDateValue ? startOfDay(checkInDateValue) : null
+  const checkOutStart = checkOutDateValue ? startOfDay(checkOutDateValue) : null
+  const isExpired =
+    !booking.checkInAt?.toDate &&
+    (booking.status === "pending" || booking.status === "confirmed") &&
+    ((checkOutStart != null && todayStart.getTime() > checkOutStart.getTime()) ||
+      (checkInStart != null && todayStart.getTime() > checkInStart.getTime()))
+  const effectiveStatus = isExpired ? "expired" : booking.status
+
   const canCancel =
-    booking.status === "pending" || booking.status === "confirmed"
+    (booking.status === "pending" || booking.status === "confirmed") &&
+    !isExpired &&
+    checkInStart != null &&
+    todayStart.getTime() < checkInStart.getTime()
   const canCheckIn =
     booking.status === "confirmed" &&
+    !isExpired &&
+    checkInStart != null &&
+    todayStart.getTime() === checkInStart.getTime() &&
     (scheduledCheckInAt == null || scheduledCheckInAt.getTime() <= Date.now())
   const canCheckout = booking.status === "checked_in"
 
@@ -264,9 +288,9 @@ export default function BookingDetailPage() {
                 <div className="flex flex-wrap gap-2">
                   <Badge
                     variant="secondary"
-                    className={BOOKING_STATUS_COLORS[booking.status]}
+                    className={BOOKING_STATUS_COLORS[effectiveStatus]}
                   >
-                    {BOOKING_STATUS_LABELS[booking.status]}
+                    {BOOKING_STATUS_LABELS[effectiveStatus]}
                   </Badge>
                   <Badge
                     variant="outline"
@@ -557,7 +581,17 @@ export default function BookingDetailPage() {
               Check Out
             </Button>
           )}
-          {booking.status === "confirmed" && !canCheckIn && scheduledCheckInAt && (
+          {isExpired && (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm font-semibold text-red-700">Booking Expired</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You did not check in before the scheduled date. This booking is now expired.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+          {booking.status === "confirmed" && !isExpired && !canCheckIn && scheduledCheckInAt && (
             <p className="text-xs text-muted-foreground">
               Check-in will be available after{" "}
               {scheduledCheckInAt.toLocaleString("en-IN")}.

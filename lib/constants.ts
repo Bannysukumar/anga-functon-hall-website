@@ -30,6 +30,7 @@ export const LISTING_TYPES: ListingType[] = [
 export const BOOKING_STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
   confirmed: "Confirmed",
+  expired: "Expired",
   checked_in: "Checked In",
   checked_out: "Checked Out",
   completed: "Completed",
@@ -50,6 +51,7 @@ export const PAYMENT_STATUS_LABELS: Record<string, string> = {
 export const BOOKING_STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
   confirmed: "bg-emerald-100 text-emerald-800",
+  expired: "bg-red-100 text-red-800",
   checked_in: "bg-indigo-100 text-indigo-800",
   checked_out: "bg-slate-100 text-slate-800",
   completed: "bg-sky-100 text-sky-800",

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import Link from "next/link"
+import { Eye, EyeOff } from "lucide-react"
 
 function normalizeMobile(value: string): string {
   return String(value || "").replace(/\D/g, "")
@@ -24,6 +25,9 @@ export function SignupForm() {
   const [mobileNumber, setMobileNumber] = useState("")
   const [referralCode, setReferralCode] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isCheckingReferral, setIsCheckingReferral] = useState(false)
   const [isReferralValid, setIsReferralValid] = useState(false)
   const [referralMessage, setReferralMessage] = useState("")
@@ -143,8 +147,12 @@ export function SignupForm() {
       toast.error("Invalid referral code")
       return
     }
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters")
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters")
+      return
+    }
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match")
       return
     }
     setLoading(true)
@@ -177,7 +185,9 @@ export function SignupForm() {
     !isCheckingReferral &&
     name.trim().length > 0 &&
     email.trim().length > 0 &&
-    password.length >= 6 &&
+    password.length >= 8 &&
+    confirmPassword.length >= 8 &&
+    password === confirmPassword &&
     isValidIndianMobile(normalizedMobile) &&
     referralCode.trim().length > 0 &&
     isReferralValid &&
@@ -235,15 +245,56 @@ export function SignupForm() {
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            type="password"
-            placeholder="Minimum 6 characters"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-          />
+          <div className="relative">
+            <Input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              placeholder="Minimum 8 characters"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              className="pr-10"
+            />
+            <button
+              type="button"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              onClick={() => setShowPassword((value) => !value)}
+              className="absolute inset-y-0 right-2 inline-flex items-center text-muted-foreground hover:text-foreground"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="confirmPassword">Confirm Password</Label>
+          <div className="relative">
+            <Input
+              id="confirmPassword"
+              type={showConfirmPassword ? "text" : "password"}
+              placeholder="Re-enter your password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={8}
+              className="pr-10"
+            />
+            <button
+              type="button"
+              aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+              onClick={() => setShowConfirmPassword((value) => !value)}
+              className="absolute inset-y-0 right-2 inline-flex items-center text-muted-foreground hover:text-foreground"
+            >
+              {showConfirmPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+          {confirmPassword.length > 0 && password !== confirmPassword ? (
+            <p className="text-xs text-red-600">Passwords do not match</p>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-2">

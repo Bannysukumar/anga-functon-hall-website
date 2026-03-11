@@ -8,6 +8,12 @@ function readBearerToken(request: Request) {
   return auth.slice("Bearer ".length).trim()
 }
 
+function startOfDay(value: Date) {
+  const next = new Date(value)
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -38,6 +44,35 @@ export async function POST(
               ? "Already checked in."
               : "Only confirmed bookings can be checked in.",
         },
+        { status: 409 }
+      )
+    }
+
+    const today = startOfDay(new Date())
+    const checkInDate = (current.checkInDate as { toDate?: () => Date } | undefined)?.toDate?.()
+    const checkOutDate = (current.checkOutDate as { toDate?: () => Date } | undefined)?.toDate?.()
+    const checkInDay = checkInDate ? startOfDay(checkInDate) : null
+    const checkOutDay = checkOutDate ? startOfDay(checkOutDate) : null
+
+    const isAfterCheckInDate = checkInDay != null && today.getTime() > checkInDay.getTime()
+    const isAfterCheckoutDate = checkOutDay != null && today.getTime() > checkOutDay.getTime()
+    if (isAfterCheckInDate || isAfterCheckoutDate) {
+      await ref.set(
+        {
+          status: "expired",
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true }
+      )
+      return NextResponse.json(
+        { error: "Booking expired because check-in date has passed." },
+        { status: 409 }
+      )
+    }
+
+    if (checkInDay && today.getTime() < checkInDay.getTime()) {
+      return NextResponse.json(
+        { error: "Check-in is only available on the check-in date." },
         { status: 409 }
       )
     }
