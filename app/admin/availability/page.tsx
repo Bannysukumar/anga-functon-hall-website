@@ -1,9 +1,11 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import { useRouter } from "next/navigation"
 import {
   getListings,
   getAvailabilityLocks,
+  getBookings,
   setAvailabilityBlock,
   updateListing,
 } from "@/lib/firebase-db"
@@ -60,6 +62,7 @@ const MONTH_NAMES = [
 ]
 
 export default function AdminAvailabilityPage() {
+  const router = useRouter()
   const { toast } = useToast()
   const now = new Date()
   const [listings, setListings] = useState<Listing[]>([])
@@ -69,6 +72,7 @@ export default function AdminAvailabilityPage() {
   const [loading, setLoading] = useState(true)
   const [loadingLocks, setLoadingLocks] = useState(false)
   const [roomListings, setRoomListings] = useState<Listing[]>([])
+  const [bookingsForSelectedDate, setBookingsForSelectedDate] = useState<Record<string, string>>({})
   const [selectedRoom, setSelectedRoom] = useState<Listing | null>(null)
   const [roomDialogOpen, setRoomDialogOpen] = useState(false)
   const [roomTypeDraft, setRoomTypeDraft] = useState<"ac" | "non_ac">("ac")
@@ -84,7 +88,11 @@ export default function AdminAvailabilityPage() {
       try {
         const data = await getListings()
         setListings(data)
-        setRoomListings(data.filter((entry) => entry.type === "room"))
+        setRoomListings(
+          data.filter((entry) =>
+            ["room", "dormitory", "dining_hall", "function_hall", "open_function_hall"].includes(entry.type)
+          )
+        )
         if (data.length > 0) setSelectedListingId(data[0].id)
       } catch (err) {
         console.error("Error loading listings:", err)
@@ -158,18 +166,35 @@ export default function AdminAvailabilityPage() {
   useEffect(() => {
     if (roomListings.length === 0 || !selectedDateForRooms) {
       setRoomLocks([])
+      setBookingsForSelectedDate({})
       return
     }
     const loadRoomLocks = async () => {
       try {
-        const roomLockChunks = await Promise.all(
+        const [roomLockChunks, bookings] = await Promise.all([
+          Promise.all(
           roomListings.map((room) =>
             getAvailabilityLocks(room.id, [selectedDateForRooms], room.roomId || undefined)
           )
-        )
+          ),
+          getBookings(),
+        ])
         setRoomLocks(roomLockChunks.flat())
+        const bookingMap: Record<string, string> = {}
+        bookings.forEach((booking) => {
+          const checkInKey = booking.checkInDate?.toDate
+            ? booking.checkInDate.toDate().toISOString().slice(0, 10)
+            : ""
+          if (checkInKey !== selectedDateForRooms) return
+          if (["cancelled", "completed", "checked_out", "no_show"].includes(booking.status)) return
+          if (!bookingMap[booking.listingId]) {
+            bookingMap[booking.listingId] = booking.id
+          }
+        })
+        setBookingsForSelectedDate(bookingMap)
       } catch {
         setRoomLocks([])
+        setBookingsForSelectedDate({})
       }
     }
     loadRoomLocks()
@@ -200,7 +225,13 @@ export default function AdminAvailabilityPage() {
         roomLock?.isBlocked ||
         Number(roomLock?.bookedUnits || 0) >= Number(roomLock?.maxUnits || room.inventory || 1)
       ) {
-        status = "booked"
+        if (room.type === "function_hall" || room.type === "open_function_hall" || room.type === "dining_hall") {
+          status = "hall_booked"
+        } else if (room.roomTypeDetail === "non_ac") {
+          status = "booked_non_ac"
+        } else {
+          status = "booked_ac"
+        }
       }
       return {
         id: room.id,
@@ -244,6 +275,11 @@ export default function AdminAvailabilityPage() {
   const openRoomEditor = (roomItem: RoomVisualItem) => {
     const room = roomListings.find((entry) => entry.id === roomItem.id)
     if (!room) return
+    const bookingId = bookingsForSelectedDate[room.id]
+    if (bookingId && roomItem.status !== "maintenance" && roomItem.status !== "blocked") {
+      router.push(`/admin/bookings/${bookingId}`)
+      return
+    }
     setSelectedRoom(room)
     setRoomTypeDraft(room.roomTypeDetail === "non_ac" ? "non_ac" : "ac")
     setPriceDraft(Number(room.pricePerUnit || 0))
@@ -257,7 +293,11 @@ export default function AdminAvailabilityPage() {
       loadMonthLocks(selectedListingId, year, month),
     ])
     setListings(listingData)
-    setRoomListings(listingData.filter((entry) => entry.type === "room"))
+    setRoomListings(
+      listingData.filter((entry) =>
+        ["room", "dormitory", "dining_hall", "function_hall", "open_function_hall"].includes(entry.type)
+      )
+    )
     setLocks(lockData)
   }
 

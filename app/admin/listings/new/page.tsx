@@ -30,7 +30,7 @@ export default function NewListingPage() {
           Add a new venue or service listing
         </p>
       </div>
-      <ListingForm onSave={handleSave} saving={saving} />
+      <ListingForm onSave={handleSave} saving={saving} isEditMode={false} />
     </div>
   )
 }

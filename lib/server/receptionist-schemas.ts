@@ -43,6 +43,7 @@ export const createBookingSchema = z.object({
   customerId: z.string().trim().max(120).optional(),
   listingId: z.string().trim().min(1).max(120),
   functionDateTime: z.string().trim().min(1).max(60),
+  selectedRoomNumbers: z.array(z.string().trim().min(1).max(60)).optional(),
   guestCount: z.coerce.number().int().min(1).max(100000),
   advanceAmount: z.coerce.number().min(0).max(10_000_000),
   totalAmount: z.coerce.number().min(1).max(10_000_000),

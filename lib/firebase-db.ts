@@ -49,6 +49,11 @@ function normalizeRoomId(value: string) {
   return value.trim().toUpperCase().replace(/\s+/g, "-")
 }
 
+function removeUndefinedFields<T extends Record<string, unknown>>(input: T): T {
+  const entries = Object.entries(input).filter(([, value]) => value !== undefined)
+  return Object.fromEntries(entries) as T
+}
+
 async function ensureUniqueRoomId(roomId: string, excludeListingId?: string) {
   const normalized = normalizeRoomId(roomId)
   if (!normalized) return
@@ -148,7 +153,7 @@ export async function createListing(
   if (normalizedRoomId) {
     await ensureUniqueRoomId(normalizedRoomId)
   }
-  const ref = await addDoc(collection(db, "listings"), {
+  const createPayload = removeUndefinedFields({
     ...data,
     capacity,
     minGuestCount,
@@ -163,6 +168,7 @@ export async function createListing(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
+  const ref = await addDoc(collection(db, "listings"), createPayload)
   return ref.id
 }
 
@@ -189,7 +195,7 @@ export async function updateListing(id: string, data: Partial<Listing>) {
   if (normalizedRoomId) {
     await ensureUniqueRoomId(normalizedRoomId, id)
   }
-  await updateDoc(doc(db, "listings", id), {
+  const updatePayload = removeUndefinedFields({
     ...data,
     ...(normalizedCapacity !== undefined ? { capacity: normalizedCapacity } : {}),
     ...(minGuestCount !== undefined ? { minGuestCount } : {}),
@@ -202,6 +208,7 @@ export async function updateListing(id: string, data: Partial<Listing>) {
     ...(data.roomStatus ? { roomStatus: data.roomStatus } : {}),
     updatedAt: serverTimestamp(),
   })
+  await updateDoc(doc(db, "listings", id), updatePayload)
 }
 
 export async function deleteListing(id: string) {

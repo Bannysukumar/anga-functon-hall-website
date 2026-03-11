@@ -49,6 +49,20 @@ export interface Listing {
   floorNumber?: number
   roomTypeDetail?: "ac" | "non_ac"
   roomStatus?: "available" | "blocked" | "maintenance"
+  maxGuestCount?: number
+  totalBeds?: number
+  stageAvailable?: boolean
+  decorationAllowed?: boolean
+  groundArea?: number
+  outdoorAllowed?: boolean
+  parkingAvailable?: boolean
+  roomConfigurations?: Array<{
+    roomNumber: string
+    roomType: "ac" | "non_ac"
+    floorNumber?: number
+    price: number
+    status?: "available" | "blocked" | "maintenance"
+  }>
   branchId: string
   title: string
   type: ListingType
@@ -265,6 +279,7 @@ export interface AvailabilityLock {
   slotId: string
   bookedUnits: number
   maxUnits: number
+  selectedRoomNumbers?: string[]
   bookingIds: string[]
   isBlocked: boolean
   updatedAt: Timestamp

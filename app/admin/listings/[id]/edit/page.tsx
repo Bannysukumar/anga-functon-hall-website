@@ -66,7 +66,7 @@ export default function EditListingPage() {
           Update listing details
         </p>
       </div>
-      <ListingForm initialData={listing} onSave={handleSave} saving={saving} />
+      <ListingForm initialData={listing} onSave={handleSave} saving={saving} isEditMode />
     </div>
   )
 }

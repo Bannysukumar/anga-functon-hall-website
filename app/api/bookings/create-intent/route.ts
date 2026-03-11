@@ -38,6 +38,25 @@ function isSlotBasedListing(type: string) {
   )
 }
 
+function isSingleBookingListing(type: string) {
+  return ["function_hall", "open_function_hall", "dining_hall"].includes(String(type || ""))
+}
+
+function buildStayDateKeys(checkInDate: string, checkOutDate?: string | null) {
+  const checkIn = new Date(`${checkInDate}T00:00:00`)
+  const checkOut = checkOutDate ? new Date(`${checkOutDate}T00:00:00`) : new Date(`${checkInDate}T00:00:00`)
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) return [checkInDate]
+  const keys: string[] = []
+  if (checkOut > checkIn) {
+    for (let cursor = new Date(checkIn); cursor < checkOut; cursor.setDate(cursor.getDate() + 1)) {
+      keys.push(cursor.toISOString().slice(0, 10))
+    }
+  } else {
+    keys.push(checkInDate)
+  }
+  return keys
+}
+
 export async function POST(request: Request) {
   try {
     const idToken = readBearerToken(request)
@@ -142,6 +161,69 @@ export async function POST(request: Request) {
         },
         { merge: true }
       )
+    }
+
+    if (isSingleBookingListing(listing.type)) {
+      const sameListingBookings = await adminDb
+        .collection("bookings")
+        .where("listingId", "==", body.listingId)
+        .limit(300)
+        .get()
+      const hasConflict = sameListingBookings.docs.some((doc) => {
+        const data = doc.data() || {}
+        const status = String(data.status || "")
+        if (["cancelled", "completed", "checked_out", "no_show"].includes(status)) return false
+        const checkIn = data.checkInDate?.toDate?.() as Date | undefined
+        const checkInKey = checkIn ? checkIn.toISOString().slice(0, 10) : ""
+        return checkInKey === String(body.checkInDate)
+      })
+      if (hasConflict) {
+        return NextResponse.json(
+          { error: "This hall is already booked for the selected date." },
+          { status: 409 }
+        )
+      }
+    }
+
+    const selectedRoomNumbers = Array.isArray(body.selectedRoomNumbers)
+      ? body.selectedRoomNumbers.map((value) => String(value).trim()).filter(Boolean)
+      : []
+    if (listing.type === "room" && selectedRoomNumbers.length > 0) {
+      const roomResourceId =
+        String(listing.roomId || "").trim() &&
+        !isSlotBasedListing(listing.type)
+          ? String(listing.roomId || "").trim().toUpperCase()
+          : String(body.listingId)
+      const dateKeys = buildStayDateKeys(String(body.checkInDate), checkOutDate)
+      const dateChunks: string[][] = []
+      for (let index = 0; index < dateKeys.length; index += 30) {
+        dateChunks.push(dateKeys.slice(index, index + 30))
+      }
+      const lockSnapshots = await Promise.all(
+        dateChunks.map((chunk) =>
+          adminDb
+            .collection("availabilityLocks")
+            .where("listingId", "==", roomResourceId)
+            .where("date", "in", chunk)
+            .get()
+        )
+      )
+      const hasConflict = lockSnapshots.some((snapshot) =>
+        snapshot.docs.some((doc) => {
+          const lock = doc.data() || {}
+          if (Boolean(lock.isBlocked)) return true
+          const alreadyBooked = Array.isArray(lock.selectedRoomNumbers)
+            ? (lock.selectedRoomNumbers as unknown[]).map((value) => String(value).trim())
+            : []
+          return selectedRoomNumbers.some((room) => alreadyBooked.includes(room))
+        })
+      )
+      if (hasConflict) {
+        return NextResponse.json(
+          { error: "Selected room is already booked for the selected date." },
+          { status: 409 }
+        )
+      }
     }
 
     const existingPendingQuery = await adminDb

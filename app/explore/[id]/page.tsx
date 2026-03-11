@@ -45,7 +45,7 @@ export default function ListingDetailPage() {
 
   const [listing, setListing] = useState<Listing | null>(null)
   const [branch, setBranch] = useState<Branch | null>(null)
-  const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
+  const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS as SiteSettings)
   const [locks, setLocks] = useState<AvailabilityLock[]>([])
   const [roomListings, setRoomListings] = useState<Listing[]>([])
   const [roomLocksById, setRoomLocksById] = useState<Record<string, AvailabilityLock[]>>({})
@@ -98,7 +98,12 @@ export default function ListingDetailPage() {
   }, [id, router])
 
   useEffect(() => {
-    if (!listing || listing.type !== "room" || !listing.branchId) {
+    if (
+      !listing ||
+      listing.type !== "room" ||
+      (Array.isArray(listing.roomConfigurations) && listing.roomConfigurations.length > 0) ||
+      !listing.branchId
+    ) {
       setRoomListings([])
       return
     }
@@ -119,7 +124,7 @@ export default function ListingDetailPage() {
 
   useEffect(() => {
     if (!listing || listing.type !== "room") return
-    setSelectedRoomIds(listing.id ? [listing.id] : [])
+    setSelectedRoomIds([])
   }, [listing?.id, listing?.type])
 
   const loadAvailability = useCallback(async () => {
@@ -155,7 +160,11 @@ export default function ListingDetailPage() {
   }, [loadAvailability])
 
   useEffect(() => {
-    if (!listing || listing.type !== "room" || roomListings.length === 0 || !selectedDate) {
+    if (
+      !listing ||
+      listing.type !== "room" ||
+      (!selectedDate || (roomListings.length === 0 && !(listing.roomConfigurations || []).length))
+    ) {
       setRoomLocksById({})
       return
     }
@@ -182,8 +191,12 @@ export default function ListingDetailPage() {
           chunks.push(dateKeys.slice(index, index + 30))
         }
 
+        const sourceRooms =
+          Array.isArray(listing.roomConfigurations) && listing.roomConfigurations.length > 0
+            ? [listing]
+            : roomListings
         const lockTuples = await Promise.all(
-          roomListings.map(async (room) => {
+          sourceRooms.map(async (room) => {
             const lockChunks = await Promise.all(
               chunks.map((chunk) => getAvailabilityLocks(room.id, chunk, room.roomId || undefined))
             )
@@ -309,6 +322,7 @@ export default function ListingDetailPage() {
   }
 
   function handleBook() {
+    if (!listing) return
     if (!user) {
       toast.error("Please sign in to book")
       router.push("/login")
@@ -358,14 +372,6 @@ export default function ListingDetailPage() {
         toast.error("Please select at least one room from the layout")
         return
       }
-      const selectedRooms = selectedRoomIds
-        .map((roomId) => roomListings.find((room) => room.id === roomId))
-        .filter((room): room is Listing => Boolean(room))
-      const distinctPrices = new Set(selectedRooms.map((room) => Number(room.pricePerUnit || 0)))
-      if (distinctPrices.size > 1) {
-        toast.error("Please select rooms with the same price for one checkout.")
-        return
-      }
     }
 
     const stayDays =
@@ -379,15 +385,21 @@ export default function ListingDetailPage() {
             )
           )
         : 1
-    const roomSelectionCount = listing?.type === "room" ? Math.max(1, selectedRoomIds.length) : unitsBooked
-    const selectedRooms = listing?.type === "room"
-      ? selectedRoomIds
-          .map((roomId) => roomListings.find((room) => room.id === roomId))
-          .filter((room): room is Listing => Boolean(room))
-      : []
-    const basePricePerUnit = selectedRooms[0]?.pricePerUnit ?? listing.pricePerUnit
+    const roomSelectionCount =
+      listing?.type === "room" ? Math.max(1, selectedRoomSummary.length) : unitsBooked
+    const selectedRooms = listing?.type === "room" ? selectedRoomSummary : []
+    const hasInlineRoomConfig =
+      Boolean(listing?.roomConfigurations && listing.roomConfigurations.length > 0)
+    const roomBaseBySelection = selectedRooms.reduce(
+      (sum, room) => sum + Math.max(0, Number(room.price || 0)),
+      0
+    )
     const price = calculatePrice()
-    const adjustedBase = Math.max(0, Number(basePricePerUnit || 0) * roomSelectionCount * stayDays)
+    const adjustedBase = Math.max(
+      0,
+      (hasInlineRoomConfig ? roomBaseBySelection : Number(selectedRooms[0]?.price || listing.pricePerUnit || 0) * roomSelectionCount) *
+        stayDays
+    )
     const subtotal = adjustedBase + price.addonsTotal
     const adjustedServiceFee = Math.round(subtotal * (settings.serviceFeePercent / 100))
     const adjustedTax = Math.round((subtotal + adjustedServiceFee) * (settings.taxPercent / 100))
@@ -405,7 +417,7 @@ export default function ListingDetailPage() {
     })
 
     const checkoutData = {
-      listingId: selectedRooms[0]?.id || listing!.id,
+      listingId: listing!.id,
       branchId: listing!.branchId,
       checkInDate: format(selectedDate, "yyyy-MM-dd"),
       checkOutDate:
@@ -417,8 +429,8 @@ export default function ListingDetailPage() {
       guestCount,
       unitsBooked: roomSelectionCount,
       stayDays,
-      selectedRoomListingIds: selectedRooms.map((room) => room.id),
-      selectedRoomNumbers: selectedRooms.map((room) => String(room.roomNumber || room.title || room.id)),
+      selectedRoomListingIds: hasInlineRoomConfig ? [listing!.id] : selectedRooms.map((room) => room.id),
+      selectedRoomNumbers: selectedRooms.map((room) => String(room.roomNumber || room.id)),
       selectedAddons: addonsArr,
       basePrice: adjustedBase,
       addonsTotal: price.addonsTotal,
@@ -467,6 +479,40 @@ export default function ListingDetailPage() {
           ? addDays(checkIn, 1)
           : null
 
+    if (Array.isArray(listing.roomConfigurations) && listing.roomConfigurations.length > 0) {
+      const inlineLocks = roomLocksById[listing.id] || []
+      const bookedRoomNumbers = new Set<string>()
+      let blockedAll = false
+      if (checkIn && checkOut) {
+        for (let cursor = checkIn; cursor < checkOut; cursor = addDays(cursor, 1)) {
+          const key = format(cursor, "yyyy-MM-dd")
+          const lock = inlineLocks.find((entry) => entry.date === key && entry.slotId === "default")
+          if (lock?.isBlocked) blockedAll = true
+          if (Array.isArray(lock?.selectedRoomNumbers)) {
+            lock.selectedRoomNumbers.forEach((room) => bookedRoomNumbers.add(String(room).trim()))
+          }
+        }
+      }
+      const sorted = [...listing.roomConfigurations].sort((a, b) =>
+        String(a.roomNumber).localeCompare(String(b.roomNumber), undefined, { numeric: true })
+      )
+      return sorted.map((config) => {
+        const roomType = config.roomType === "non_ac" ? "non_ac" : "ac"
+        let status: RoomVisualItem["status"] = roomType === "non_ac" ? "available_non_ac" : "available_ac"
+        if (config.status === "maintenance") status = "maintenance"
+        else if (config.status === "blocked" || blockedAll) status = "blocked"
+        else if (bookedRoomNumbers.has(String(config.roomNumber).trim())) status = "booked"
+        return {
+          id: `cfg:${config.roomNumber}`,
+          roomNumber: String(config.roomNumber),
+          floorNumber: Math.max(1, Number(config.floorNumber || listing.floorNumber || 1)),
+          price: Number(config.price || listing.pricePerUnit || 0),
+          roomType,
+          status,
+        }
+      })
+    }
+
     return roomListings.map((room) => {
       const roomLocks = roomLocksById[room.id] || []
       const floorFromNumber = Number.parseInt(String(room.roomNumber || "").slice(0, 1), 10)
@@ -504,11 +550,11 @@ export default function ListingDetailPage() {
 
   const selectedRoomSummary = useMemo(() => {
     if (selectedRoomIds.length === 0) return []
-    const map = new Map(roomListings.map((room) => [room.id, room]))
+    const map = new Map(roomVisualItems.map((room) => [room.id, room]))
     return selectedRoomIds
       .map((roomId) => map.get(roomId))
-      .filter((room): room is Listing => Boolean(room))
-  }, [roomListings, selectedRoomIds])
+      .filter((room): room is RoomVisualItem => Boolean(room))
+  }, [roomVisualItems, selectedRoomIds])
 
   useEffect(() => {
     if (currentImage >= visibleImages.length) {
@@ -884,12 +930,12 @@ export default function ListingDetailPage() {
                           <p className="font-medium text-foreground">
                             Selected Room{selectedRoomSummary.length > 1 ? "s" : ""}:{" "}
                             {selectedRoomSummary
-                              .map((room) => String(room.roomNumber || room.title || room.id))
+                              .map((room) => String(room.roomNumber || room.id))
                               .join(", ")}
                           </p>
                           <p>
                             Price: ₹
-                            {Math.round(Number(selectedRoomSummary[0]?.pricePerUnit || listing.pricePerUnit)).toLocaleString("en-IN")}
+                            {Math.round(Number(selectedRoomSummary[0]?.price || listing.pricePerUnit)).toLocaleString("en-IN")}
                             {" x "}
                             {selectedRoomSummary.length}
                           </p>

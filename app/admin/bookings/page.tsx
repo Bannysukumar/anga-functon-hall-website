@@ -1,11 +1,12 @@
 "use client"
 
-import { getBookings, updateBooking } from "@/lib/firebase-db"
-import type { Booking } from "@/lib/types"
+import { getAllUsers, getBookings, updateBooking } from "@/lib/firebase-db"
+import type { AppUser, Booking } from "@/lib/types"
 import Link from "next/link"
 import {
   BOOKING_STATUS_LABELS,
   BOOKING_STATUS_COLORS,
+  LISTING_TYPE_LABELS,
   PAYMENT_STATUS_LABELS,
   PAYMENT_STATUS_COLORS,
 } from "@/lib/constants"
@@ -60,6 +61,7 @@ export default function AdminBookingsPage() {
   const { toast } = useToast()
   const { user, hasPermission, isAdminUser } = useAuth()
   const [bookings, setBookings] = useState<Booking[]>([])
+  const [usersById, setUsersById] = useState<Record<string, AppUser>>({})
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -69,10 +71,16 @@ export default function AdminBookingsPage() {
   const loadBookings = async () => {
     setLoading(true)
     try {
-      const data = await getBookings(
-        userIdFilter ? { userId: userIdFilter } : undefined
-      )
+      const [data, users] = await Promise.all([
+        getBookings(userIdFilter ? { userId: userIdFilter } : undefined),
+        getAllUsers(),
+      ])
       setBookings(data)
+      const map: Record<string, AppUser> = {}
+      users.forEach((entry) => {
+        map[entry.id] = entry
+      })
+      setUsersById(map)
     } catch (err) {
       console.error("Error loading bookings:", err)
     } finally {
@@ -259,12 +267,18 @@ export default function AdminBookingsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Listing</TableHead>
-                  <TableHead>Date</TableHead>
+                  <TableHead>Booking ID</TableHead>
+                  <TableHead>User Name</TableHead>
+                  <TableHead>Mobile</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Listing Type</TableHead>
+                  <TableHead>Room / Hall</TableHead>
+                  <TableHead>Guests</TableHead>
+                  <TableHead>Check-in</TableHead>
+                  <TableHead>Check-out</TableHead>
                   <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead>Payment</TableHead>
-                  <TableHead>Allocation / Invoice</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -272,7 +286,7 @@ export default function AdminBookingsPage() {
                 {filtered.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={13}
                       className="py-10 text-center text-muted-foreground"
                     >
                       No bookings found.
@@ -280,33 +294,40 @@ export default function AdminBookingsPage() {
                   </TableRow>
                 ) : (
                   filtered.map((booking) => {
-                    const dateStr = booking.checkInDate?.toDate
-                      ? booking.checkInDate
-                          .toDate()
-                          .toLocaleDateString("en-IN", {
-                            day: "2-digit",
-                            month: "short",
-                          })
+                    const checkInStr = booking.checkInDate?.toDate
+                      ? booking.checkInDate.toDate().toLocaleDateString("en-IN")
                       : "N/A"
+                    const checkOutStr = booking.checkOutDate?.toDate
+                      ? booking.checkOutDate.toDate().toLocaleDateString("en-IN")
+                      : "-"
+                    const userProfile = usersById[booking.userId]
+                    const customerName =
+                      booking.customerName || userProfile?.displayName || "Customer"
+                    const customerPhone =
+                      booking.customerPhone || userProfile?.phone || userProfile?.mobileNumber || "-"
+                    const customerEmail =
+                      booking.customerEmail || userProfile?.email || "-"
+                    const roomOrHall = booking.roomNumber
+                      ? `Room ${booking.roomNumber}`
+                      : booking.listingTitle
 
                     return (
                       <TableRow key={booking.id}>
                         <TableCell>
-                          <div>
-                            <p className="font-medium text-foreground">
-                              {booking.listingTitle}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {booking.branchName}
-                            </p>
-                          </div>
+                          <Link href={`/admin/bookings/${booking.id}`} className="font-mono text-xs text-primary hover:underline">
+                            {booking.id}
+                          </Link>
                         </TableCell>
+                        <TableCell className="font-medium">{customerName}</TableCell>
+                        <TableCell>{customerPhone}</TableCell>
+                        <TableCell className="text-xs">{customerEmail}</TableCell>
                         <TableCell>
-                          <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <CalendarDays className="h-3.5 w-3.5" />
-                            {dateStr}
-                          </span>
+                          {LISTING_TYPE_LABELS[booking.listingType] || booking.listingType}
                         </TableCell>
+                        <TableCell>{roomOrHall}</TableCell>
+                        <TableCell>{booking.guestCount}</TableCell>
+                        <TableCell>{checkInStr}</TableCell>
+                        <TableCell>{checkOutStr}</TableCell>
                         <TableCell>
                           <div className="text-sm">
                             <p className="font-medium text-foreground">
@@ -321,14 +342,6 @@ export default function AdminBookingsPage() {
                         </TableCell>
                         <TableCell>
                           <Badge
-                            variant="secondary"
-                            className={BOOKING_STATUS_COLORS[booking.status]}
-                          >
-                            {BOOKING_STATUS_LABELS[booking.status]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
                             variant="outline"
                             className={
                               PAYMENT_STATUS_COLORS[booking.paymentStatus]
@@ -338,24 +351,12 @@ export default function AdminBookingsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <div className="text-xs text-muted-foreground">
-                            <p>
-                              {(booking.allocatedResource?.labels || [])
-                                .slice(0, 2)
-                                .join(", ") || "-"}
-                            </p>
-                            {booking.invoiceNumber && (
-                              <p className="font-mono text-[10px] text-foreground">
-                                {booking.invoiceNumber}
-                              </p>
-                            )}
-                            <p>
-                              Payment Verified: {booking.paymentVerified ? "Yes" : "No"}
-                            </p>
-                            <p>
-                              Email: {booking.emailStatus || "pending"}
-                            </p>
-                          </div>
+                          <Badge
+                            variant="secondary"
+                            className={BOOKING_STATUS_COLORS[booking.status]}
+                          >
+                            {BOOKING_STATUS_LABELS[booking.status]}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
@@ -365,6 +366,9 @@ export default function AdminBookingsPage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link href={`/admin/bookings/${booking.id}`}>View Details</Link>
+                              </DropdownMenuItem>
                               {booking.status === "pending" && (
                                 <DropdownMenuItem
                                   onClick={() =>

@@ -9,6 +9,9 @@ import { cn } from "@/lib/utils"
 export type RoomVisualStatus =
   | "available_ac"
   | "available_non_ac"
+  | "booked_ac"
+  | "booked_non_ac"
+  | "hall_booked"
   | "booked"
   | "maintenance"
   | "blocked"
@@ -43,6 +46,15 @@ function floorLabel(floor: number) {
 function cardClasses(status: RoomVisualStatus, disabled = false) {
   if (disabled || status === "booked") {
     return "border-slate-300 bg-slate-100 text-slate-500 opacity-75 cursor-not-allowed"
+  }
+  if (status === "booked_ac") {
+    return "border-red-400 bg-red-50 text-red-700 cursor-not-allowed"
+  }
+  if (status === "booked_non_ac") {
+    return "border-orange-400 bg-orange-50 text-orange-700 cursor-not-allowed"
+  }
+  if (status === "hall_booked") {
+    return "border-purple-400 bg-purple-50 text-purple-700 cursor-not-allowed"
   }
   if (status === "maintenance") {
     return "border-red-300 bg-red-50 text-red-700"
@@ -133,6 +145,15 @@ export function RoomLayoutMap({
         </Badge>
         {showAdminLegend ? (
           <>
+            <Badge variant="outline" className="border-red-400 text-red-700">
+              Booked AC
+            </Badge>
+            <Badge variant="outline" className="border-orange-400 text-orange-700">
+              Booked Non-AC
+            </Badge>
+            <Badge variant="outline" className="border-purple-400 text-purple-700">
+              Hall Booked
+            </Badge>
             <Badge variant="outline" className="border-red-300 text-red-700">
               Maintenance
             </Badge>
@@ -166,7 +187,10 @@ export function RoomLayoutMap({
                     const status = selected ? "selected" : room.status
                     const disabled =
                       room.disabled ||
-                      room.status === "booked" ||
+                    room.status === "booked" ||
+                    room.status === "booked_ac" ||
+                    room.status === "booked_non_ac" ||
+                    room.status === "hall_booked" ||
                       room.status === "maintenance" ||
                       room.status === "blocked"
                     return (

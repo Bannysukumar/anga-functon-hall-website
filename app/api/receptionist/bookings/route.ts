@@ -76,6 +76,10 @@ function resolveBookingSlot(
   }
 }
 
+function isSingleBookingListing(listingType: string) {
+  return ["function_hall", "open_function_hall", "dining_hall"].includes(String(listingType || ""))
+}
+
 export async function GET(request: Request) {
   try {
     await requirePermission(request, "view_bookings")
@@ -158,6 +162,9 @@ export async function POST(request: Request) {
     const functionDateTime = sanitizeText(body.functionDateTime, 60)
     const paymentMethod = sanitizeText(body.paymentMethod || "cash", 40)
     const notes = sanitizeText(body.notes || "", 500)
+    const requestedRoomNumbers = Array.isArray(body.selectedRoomNumbers)
+      ? body.selectedRoomNumbers.map((value) => sanitizeText(String(value), 60)).filter(Boolean)
+      : []
     const guestCount = Math.max(1, Number(body.guestCount))
     const advanceAmount = Math.max(0, Number(body.advanceAmount))
     const totalAmount = Math.max(0, Number(body.totalAmount))
@@ -209,6 +216,33 @@ export async function POST(request: Request) {
       const scheduledCheckOutAt = Timestamp.fromDate(new Date(`${checkInDateKey}T${checkOutTime}`))
       const bookingSlot = resolveBookingSlot(listing, functionDateTime)
       const listingType = String(listing.type || "function_hall")
+      const selectedRoomNumbers = listingType === "room"
+        ? requestedRoomNumbers.length > 0
+          ? requestedRoomNumbers
+          : String(listing.roomNumber || "").trim()
+            ? [String(listing.roomNumber || "").trim()]
+            : []
+        : []
+      if (isSingleBookingListing(listingType)) {
+        const existingSnap = await adminDb
+          .collection("bookings")
+          .where("listingId", "==", listingId)
+          .limit(300)
+          .get()
+        const hasConflict = existingSnap.docs.some((doc) => {
+          const existing = doc.data() || {}
+          const existingStatus = String(existing.status || "")
+          if (["cancelled", "completed", "checked_out", "no_show"].includes(existingStatus)) {
+            return false
+          }
+          const existingDate = existing.checkInDate?.toDate?.() as Date | undefined
+          const dateKey = existingDate ? normalizeDateKey(existingDate.toISOString()) : ""
+          return dateKey === checkInDateKey
+        })
+        if (hasConflict) {
+          throw new Error("HALL_ALREADY_BOOKED")
+        }
+      }
       const usesRoomResource =
         String(listing.roomId || "").trim() &&
         !["function_hall", "open_function_hall", "dining_hall", "local_tour"].includes(listingType)
@@ -227,6 +261,16 @@ export async function POST(request: Request) {
         : 0
       if (availabilityLockSnap.exists && availabilityLockSnap.data()?.isBlocked) {
         throw new Error("DATE_BLOCKED")
+      }
+      const alreadyBookedRoomNumbers = new Set(
+        Array.isArray(availabilityLockSnap.data()?.selectedRoomNumbers)
+          ? (availabilityLockSnap.data()?.selectedRoomNumbers as unknown[]).map((value) =>
+              String(value).trim()
+            )
+          : []
+      )
+      if (selectedRoomNumbers.some((room) => alreadyBookedRoomNumbers.has(room))) {
+        throw new Error("ROOM_ALREADY_BOOKED")
       }
       if (currentBookedUnits + unitsNeeded > maxUnits) {
         throw new Error("DATE_FULL")
@@ -253,10 +297,16 @@ export async function POST(request: Request) {
 
       transaction.set(counterRef, { value: nextCounter }, { merge: true })
       if (availabilityLockSnap.exists) {
+        const previousRoomNumbers = Array.isArray(availabilityLockSnap.data()?.selectedRoomNumbers)
+          ? (availabilityLockSnap.data()?.selectedRoomNumbers as unknown[]).map((value) =>
+              String(value).trim()
+            )
+          : []
         transaction.set(
           availabilityLockRef,
           {
             bookedUnits: currentBookedUnits + unitsNeeded,
+            selectedRoomNumbers: Array.from(new Set([...previousRoomNumbers, ...selectedRoomNumbers])),
             bookingIds: [...((availabilityLockSnap.data()?.bookingIds as string[] | undefined) || []), bookingRef.id],
             updatedAt: Timestamp.now(),
           },
@@ -269,6 +319,7 @@ export async function POST(request: Request) {
           slotId: availabilitySlotId,
           bookedUnits: unitsNeeded,
           maxUnits,
+          selectedRoomNumbers,
           bookingIds: [bookingRef.id],
           isBlocked: false,
           updatedAt: Timestamp.now(),
@@ -288,6 +339,8 @@ export async function POST(request: Request) {
         roomNumber: String(listing.roomNumber || ""),
         roomTypeDetail:
           String(listing.roomTypeDetail || "ac") === "non_ac" ? "non_ac" : "ac",
+        selectedRoomListingIds: selectedRoomNumbers.length > 0 ? [listingId] : [],
+        selectedRoomNumbers,
         branchId,
         listingType,
         listingTitle: String(listing.title || "Listing"),
@@ -414,6 +467,18 @@ export async function POST(request: Request) {
     }
     if (errMessage === "DATE_FULL") {
       return NextResponse.json({ error: "Selected date/slot is fully booked." }, { status: 409 })
+    }
+    if (errMessage === "HALL_ALREADY_BOOKED") {
+      return NextResponse.json(
+        { error: "This hall is already booked for the selected date." },
+        { status: 409 }
+      )
+    }
+    if (errMessage === "ROOM_ALREADY_BOOKED") {
+      return NextResponse.json(
+        { error: "Selected room is already booked for the selected date." },
+        { status: 409 }
+      )
     }
     const mapped = toHttpError(error)
     if (mapped.status !== 500) {

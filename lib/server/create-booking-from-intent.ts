@@ -70,11 +70,23 @@ export async function createBookingFromIntent(
     const lockSnap = await transaction.get(lockRef)
     const maxUnits = listing?.inventory || 1
     const unitsNeeded = Math.max(1, Number(intent.unitsBooked || 1))
+    const selectedRoomNumbers = Array.isArray(intent.selectedRoomNumbers)
+      ? intent.selectedRoomNumbers.map((value: unknown) => String(value).trim()).filter(Boolean)
+      : []
     let currentBooked = 0
     if (lockSnap.exists) {
       const lock = lockSnap.data()
       if (lock?.isBlocked) throw new Error("This slot/date is blocked.")
       currentBooked = Number(lock?.bookedUnits || 0)
+      const alreadyBookedRoomNumbers = new Set(
+        Array.isArray(lock?.selectedRoomNumbers)
+          ? (lock.selectedRoomNumbers as unknown[]).map((value) => String(value).trim())
+          : []
+      )
+      const hasRoomConflict = selectedRoomNumbers.some((room) => alreadyBookedRoomNumbers.has(room))
+      if (hasRoomConflict) {
+        throw new Error("Selected room is already booked for this date.")
+      }
     }
     if (currentBooked + unitsNeeded > maxUnits) {
       throw new Error(`Not enough availability. Only ${Math.max(0, maxUnits - currentBooked)} unit(s) remaining.`)
@@ -89,8 +101,12 @@ export async function createBookingFromIntent(
     const invoiceNumber = generateInvoiceNumber()
 
     if (lockSnap.exists) {
+      const previousRoomNumbers = Array.isArray(lockSnap.data()?.selectedRoomNumbers)
+        ? (lockSnap.data()?.selectedRoomNumbers as unknown[]).map((value) => String(value).trim()).filter(Boolean)
+        : []
       transaction.update(lockRef, {
         bookedUnits: currentBooked + unitsNeeded,
+        selectedRoomNumbers: Array.from(new Set([...previousRoomNumbers, ...selectedRoomNumbers])),
         bookingIds: [...(lockSnap.data()?.bookingIds || []), bookingRef.id],
         updatedAt: now,
       })
@@ -101,6 +117,7 @@ export async function createBookingFromIntent(
         slotId,
         bookedUnits: unitsNeeded,
         maxUnits,
+        selectedRoomNumbers,
         bookingIds: [bookingRef.id],
         isBlocked: false,
         updatedAt: now,
@@ -114,6 +131,10 @@ export async function createBookingFromIntent(
       roomId: String(listing?.roomId || ""),
       roomNumber: String(listing?.roomNumber || ""),
       roomTypeDetail: String(listing?.roomTypeDetail || "ac") === "non_ac" ? "non_ac" : "ac",
+      selectedRoomListingIds: Array.isArray(intent.selectedRoomListingIds)
+        ? intent.selectedRoomListingIds.map((value: unknown) => String(value))
+        : [],
+      selectedRoomNumbers,
       branchId: intent.branchId,
       listingType: listing?.type || "function_hall",
       listingTitle: listing?.title || "Listing",

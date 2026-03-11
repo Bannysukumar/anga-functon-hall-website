@@ -4,7 +4,6 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import type { Listing, Branch, ListingSlot, ListingAddon, ListingType } from "@/lib/types"
 import {
-  LISTING_TYPES,
   LISTING_TYPE_LABELS,
   AMENITY_OPTIONS,
 } from "@/lib/constants"
@@ -30,8 +29,12 @@ import { toast } from "sonner"
 
 interface ListingFormProps {
   initialData?: Listing
-  onSave: (data: Omit<Listing, "id" | "createdAt" | "updatedAt">) => Promise<string>
+  onSave: (
+    data: Omit<Listing, "id" | "createdAt" | "updatedAt">,
+    options?: { bulkRooms?: Array<{ roomNumber: string; roomId: string }> }
+  ) => Promise<string>
   saving: boolean
+  isEditMode?: boolean
 }
 
 const DEFAULT_LISTING = {
@@ -40,6 +43,14 @@ const DEFAULT_LISTING = {
   floorNumber: 1,
   roomTypeDetail: "ac" as const,
   roomStatus: "available" as const,
+  maxGuestCount: 100,
+  totalBeds: 1,
+  stageAvailable: false,
+  decorationAllowed: true,
+  groundArea: 0,
+  outdoorAllowed: true,
+  parkingAvailable: true,
+  roomConfigurations: [] as NonNullable<Listing["roomConfigurations"]>,
   branchId: "",
   title: "",
   type: "function_hall" as ListingType,
@@ -76,6 +87,25 @@ function buildFormState(initialData?: Listing) {
     floorNumber: Number(initialData.floorNumber || 1),
     roomTypeDetail: initialData.roomTypeDetail || "ac",
     roomStatus: initialData.roomStatus || "available",
+    maxGuestCount: initialData.maxGuestCount ?? initialData.capacity ?? DEFAULT_LISTING.maxGuestCount,
+    totalBeds: initialData.totalBeds ?? initialData.inventory ?? DEFAULT_LISTING.totalBeds,
+    stageAvailable: Boolean(initialData.stageAvailable),
+    decorationAllowed:
+      initialData.decorationAllowed === undefined
+        ? DEFAULT_LISTING.decorationAllowed
+        : Boolean(initialData.decorationAllowed),
+    groundArea: Number(initialData.groundArea ?? DEFAULT_LISTING.groundArea),
+    outdoorAllowed:
+      initialData.outdoorAllowed === undefined
+        ? DEFAULT_LISTING.outdoorAllowed
+        : Boolean(initialData.outdoorAllowed),
+    parkingAvailable:
+      initialData.parkingAvailable === undefined
+        ? DEFAULT_LISTING.parkingAvailable
+        : Boolean(initialData.parkingAvailable),
+    roomConfigurations: Array.isArray(initialData.roomConfigurations)
+      ? initialData.roomConfigurations
+      : [],
     title: initialData.title || "",
     type: initialData.type || DEFAULT_LISTING.type,
     description: initialData.description || "",
@@ -110,7 +140,32 @@ function buildFormState(initialData?: Listing) {
   }
 }
 
-export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
+const ADMIN_LISTING_TYPES: ListingType[] = [
+  "room",
+  "dining_hall",
+  "dormitory",
+  "open_function_hall",
+  "function_hall",
+]
+
+function parseRoomTokens(raw: string) {
+  return String(raw || "")
+    .split(",")
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .flatMap((token) => {
+      const range = token.match(/^(\d+)\s*-\s*(\d+)$/)
+      if (!range) return [token]
+      const start = Number(range[1])
+      const end = Number(range[2])
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return []
+      const values: string[] = []
+      for (let value = start; value <= end; value += 1) values.push(String(value))
+      return values
+    })
+}
+
+export function ListingForm({ initialData, onSave, saving, isEditMode = false }: ListingFormProps) {
   const router = useRouter()
   const [draftImageGroupId] = useState(
     () => `draft_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
@@ -119,12 +174,33 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
   const [loadingBranches, setLoadingBranches] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [newRule, setNewRule] = useState("")
+  const [acRoomNumbers, setAcRoomNumbers] = useState("")
+  const [nonAcRoomNumbers, setNonAcRoomNumbers] = useState("")
+  const [acRoomPrice, setAcRoomPrice] = useState(0)
+  const [nonAcRoomPrice, setNonAcRoomPrice] = useState(0)
+  const [acFloorNumber, setAcFloorNumber] = useState(1)
+  const [nonAcFloorNumber, setNonAcFloorNumber] = useState(1)
   const [form, setForm] = useState(buildFormState(initialData))
   const [brokenImages, setBrokenImages] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
     setForm(buildFormState(initialData))
     setBrokenImages({})
+  }, [initialData])
+
+  useEffect(() => {
+    if (!initialData || initialData.type !== "room") return
+    const configs = Array.isArray(initialData.roomConfigurations)
+      ? initialData.roomConfigurations
+      : []
+    const acConfigs = configs.filter((entry) => entry.roomType !== "non_ac")
+    const nonAcConfigs = configs.filter((entry) => entry.roomType === "non_ac")
+    setAcRoomNumbers(acConfigs.map((entry) => String(entry.roomNumber)).join(","))
+    setNonAcRoomNumbers(nonAcConfigs.map((entry) => String(entry.roomNumber)).join(","))
+    setAcRoomPrice(Number(acConfigs[0]?.price || 0))
+    setNonAcRoomPrice(Number(nonAcConfigs[0]?.price || 0))
+    setAcFloorNumber(Math.max(1, Number(acConfigs[0]?.floorNumber || initialData.floorNumber || 1)))
+    setNonAcFloorNumber(Math.max(1, Number(nonAcConfigs[0]?.floorNumber || initialData.floorNumber || 1)))
   }, [initialData])
 
   useEffect(() => {
@@ -235,7 +311,11 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.title || !form.pricePerUnit) {
+    if (!form.title) {
+      toast.error("Title is required")
+      return
+    }
+    if (form.type !== "room" && !form.pricePerUnit) {
       toast.error("Title and base price are required")
       return
     }
@@ -255,19 +335,90 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
       toast.error("Unique Room ID is required for room listings")
       return
     }
-    if (form.type === "room" && !String(form.roomNumber || "").trim()) {
-      toast.error("Room number is required for room listings")
+    if (form.type === "dormitory" && Number(form.inventory || 0) < 1) {
+      toast.error("Total beds must be at least 1")
       return
     }
     const normalizedRoomId = String(form.roomId || "")
       .trim()
       .toUpperCase()
       .replace(/\s+/g, "-")
+    const acRooms = parseRoomTokens(acRoomNumbers)
+    const nonAcRooms = parseRoomTokens(nonAcRoomNumbers)
+    const explicitRoomNumber = String(form.roomNumber || "").trim()
+
+    let roomConfigurations: Listing["roomConfigurations"] = undefined
+    if (form.type === "room") {
+      const existingByRoomNumber = new Map(
+        (form.roomConfigurations || []).map((entry) => [String(entry.roomNumber), entry])
+      )
+      const items: NonNullable<Listing["roomConfigurations"]> = []
+      acRooms.forEach((roomNumber) => {
+        if (Number(acRoomPrice || 0) > 0) {
+          const existing = existingByRoomNumber.get(String(roomNumber))
+          items.push({
+            roomNumber,
+            roomType: "ac",
+            floorNumber: Math.max(1, Number(existing?.floorNumber || acFloorNumber || 1)),
+            price: Math.max(0, Number(acRoomPrice || 0)),
+            status: existing?.status || "available",
+          })
+        }
+      })
+      nonAcRooms.forEach((roomNumber) => {
+        if (Number(nonAcRoomPrice || 0) > 0) {
+          const existing = existingByRoomNumber.get(String(roomNumber))
+          items.push({
+            roomNumber,
+            roomType: "non_ac",
+            floorNumber: Math.max(1, Number(existing?.floorNumber || nonAcFloorNumber || 1)),
+            price: Math.max(0, Number(nonAcRoomPrice || 0)),
+            status: existing?.status || "available",
+          })
+        }
+      })
+      if (items.length === 0 && explicitRoomNumber) {
+        items.push({
+          roomNumber: explicitRoomNumber,
+          roomType: form.roomTypeDetail === "non_ac" ? "non_ac" : "ac",
+          floorNumber:
+            form.roomTypeDetail === "non_ac"
+              ? Math.max(1, Number(nonAcFloorNumber || form.floorNumber || 1))
+              : Math.max(1, Number(acFloorNumber || form.floorNumber || 1)),
+          price: Math.max(0, Number(form.pricePerUnit || 0)),
+          status: "available",
+        })
+      }
+      const unique = new Map<string, (typeof items)[number]>()
+      items.forEach((item) => {
+        unique.set(String(item.roomNumber).trim(), item)
+      })
+      roomConfigurations = Array.from(unique.values())
+      if (roomConfigurations.length === 0) {
+        toast.error("Provide at least one AC or Non-AC room number with price")
+        return
+      }
+    }
     try {
+      const fallbackPrice = Math.max(0, Number(form.pricePerUnit || 0))
+      const minRoomPrice =
+        roomConfigurations && roomConfigurations.length > 0
+          ? Math.min(...roomConfigurations.map((entry) => Number(entry.price || 0)))
+          : fallbackPrice
       await onSave({
         ...(form as Omit<Listing, "id" | "createdAt" | "updatedAt">),
         roomId: normalizedRoomId,
-        roomNumber: String(form.roomNumber || "").trim(),
+        roomNumber:
+          roomConfigurations && roomConfigurations.length > 0
+            ? String(roomConfigurations[0].roomNumber || "")
+            : explicitRoomNumber,
+        roomConfigurations,
+        inventory:
+          roomConfigurations && roomConfigurations.length > 0
+            ? roomConfigurations.length
+            : form.inventory,
+        pricePerUnit: form.type === "room" ? minRoomPrice : form.pricePerUnit,
+        totalBeds: form.type === "dormitory" ? Math.max(1, Number(form.inventory || 1)) : undefined,
       })
       router.replace("/admin/listings")
       router.refresh()
@@ -314,7 +465,7 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {LISTING_TYPES.map((t) => (
+                  {ADMIN_LISTING_TYPES.map((t) => (
                     <SelectItem key={t} value={t}>
                       {LISTING_TYPE_LABELS[t]}
                     </SelectItem>
@@ -323,21 +474,23 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
               </Select>
             </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label>Unique Room ID {form.type === "room" ? "*" : "(optional)"}</Label>
-            <Input
-              value={form.roomId}
-              onChange={(e) => setForm({ ...form, roomId: e.target.value })}
-              placeholder="ROOM-101"
-            />
-            <p className="text-xs text-muted-foreground">
-              Use the same Room ID for listings that represent the same physical room.
-            </p>
-          </div>
+          {form.type === "room" && (
+            <div className="flex flex-col gap-2">
+              <Label>Unique Room ID *</Label>
+              <Input
+                value={form.roomId}
+                onChange={(e) => setForm({ ...form, roomId: e.target.value })}
+                placeholder="ROOM-101"
+              />
+              <p className="text-xs text-muted-foreground">
+                Use one Room ID base. Bulk mode appends room number automatically.
+              </p>
+            </div>
+          )}
           {form.type === "room" && (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
-                <Label>Room Number *</Label>
+                <Label>Room Number {isEditMode ? "*" : "(optional in bulk mode)"}</Label>
                 <Input
                   value={form.roomNumber}
                   onChange={(e) => setForm({ ...form, roomNumber: e.target.value })}
@@ -362,7 +515,7 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
                 </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <Label>Floor Number *</Label>
+                <Label>Default Floor Number *</Label>
                 <Input
                   type="number"
                   min={1}
@@ -395,6 +548,162 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
                     <SelectItem value="maintenance">Maintenance</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>AC Room Numbers</Label>
+                <Input
+                  value={acRoomNumbers}
+                  onChange={(e) => setAcRoomNumbers(e.target.value)}
+                  placeholder="101,102,103 or 101-120"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>AC Floor Number</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={acFloorNumber}
+                  onChange={(e) => setAcFloorNumber(Math.max(1, Number(e.target.value || 1)))}
+                  placeholder="1"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>AC Room Price</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={acRoomPrice}
+                  onChange={(e) => setAcRoomPrice(Number(e.target.value || 0))}
+                  placeholder="1999"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Non-AC Room Numbers</Label>
+                <Input
+                  value={nonAcRoomNumbers}
+                  onChange={(e) => setNonAcRoomNumbers(e.target.value)}
+                  placeholder="201,202,203 or 201-220"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Non-AC Floor Number</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={nonAcFloorNumber}
+                  onChange={(e) => setNonAcFloorNumber(Math.max(1, Number(e.target.value || 1)))}
+                  placeholder="2"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Non-AC Room Price</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={nonAcRoomPrice}
+                  onChange={(e) => setNonAcRoomPrice(Number(e.target.value || 0))}
+                  placeholder="1499"
+                />
+              </div>
+            </div>
+          )}
+          {form.type === "room" && Array.isArray(form.roomConfigurations) && form.roomConfigurations.length > 0 && (
+            <div className="rounded-md border bg-secondary/30 p-3 text-xs text-muted-foreground">
+              <p className="mb-1 font-medium text-foreground">Configured Rooms Preview</p>
+              <p>
+                AC: {form.roomConfigurations.filter((entry) => entry.roomType !== "non_ac").length} | Non-AC:{" "}
+                {form.roomConfigurations.filter((entry) => entry.roomType === "non_ac").length}
+              </p>
+              <p className="line-clamp-2">
+                {form.roomConfigurations.map((entry) => `${entry.roomNumber}(${entry.roomType === "non_ac" ? "Non-AC" : "AC"})`).join(", ")}
+              </p>
+            </div>
+          )}
+          {form.type === "dormitory" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label>Total Beds *</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.inventory}
+                  onChange={(e) =>
+                    setForm({ ...form, inventory: Math.max(1, Number(e.target.value || 1)) })
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Room Type *</Label>
+                <Select
+                  value={form.roomTypeDetail}
+                  onValueChange={(v) =>
+                    setForm({ ...form, roomTypeDetail: v as "ac" | "non_ac" })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ac">AC</SelectItem>
+                    <SelectItem value="non_ac">Non AC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Floor Number *</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.floorNumber}
+                  onChange={(e) =>
+                    setForm({ ...form, floorNumber: Math.max(1, Number(e.target.value || 1)) })
+                  }
+                />
+              </div>
+            </div>
+          )}
+          {form.type === "function_hall" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <Label>Stage Available</Label>
+                <Switch
+                  checked={Boolean(form.stageAvailable)}
+                  onCheckedChange={(checked) => setForm({ ...form, stageAvailable: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <Label>Decoration Allowed</Label>
+                <Switch
+                  checked={Boolean(form.decorationAllowed)}
+                  onCheckedChange={(checked) => setForm({ ...form, decorationAllowed: checked })}
+                />
+              </div>
+            </div>
+          )}
+          {form.type === "open_function_hall" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label>Ground Area (sq.ft)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={Number(form.groundArea || 0)}
+                  onChange={(e) => setForm({ ...form, groundArea: Math.max(0, Number(e.target.value || 0)) })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <Label>Outdoor Allowed</Label>
+                <Switch
+                  checked={Boolean(form.outdoorAllowed)}
+                  onCheckedChange={(checked) => setForm({ ...form, outdoorAllowed: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <Label>Parking Available</Label>
+                <Switch
+                  checked={Boolean(form.parkingAvailable)}
+                  onCheckedChange={(checked) => setForm({ ...form, parkingAvailable: checked })}
+                />
               </div>
             </div>
           )}
@@ -429,7 +738,9 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label>Capacity (guests)</Label>
+              <Label>
+                {form.type === "dormitory" ? "Dormitory Capacity (beds)" : "Capacity (guests)"}
+              </Label>
               <Input
                 type="number"
                 min={1}
@@ -458,13 +769,36 @@ export function ListingForm({ initialData, onSave, saving }: ListingFormProps) {
               />
             </div>
           </div>
+          {(form.type === "dining_hall" || form.type === "function_hall" || form.type === "open_function_hall") && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label>Maximum Guests Allowed</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={Number(form.maxGuestCount || form.capacity || 1)}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      maxGuestCount: Math.max(1, Number(e.target.value || 1)),
+                    })
+                  }
+                />
+              </div>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label>Inventory (units/rooms/beds)</Label>
+              <Label>
+                {form.type === "dormitory"
+                  ? "Inventory (auto from total beds)"
+                  : "Inventory (units/rooms/beds)"}
+              </Label>
               <Input
                 type="number"
                 min={1}
                 value={form.inventory}
+                disabled={form.type === "dormitory"}
                 onChange={(e) =>
                   setForm({
                     ...form,
