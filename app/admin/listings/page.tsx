@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { getListings, deleteListing, getBranches } from "@/lib/firebase-db"
+import { getListings, deleteListing, getBranches, createListing } from "@/lib/firebase-db"
 import type { Listing, Branch } from "@/lib/types"
 import { LISTING_TYPE_LABELS } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Spinner } from "@/components/ui/spinner"
-import { Plus, Pencil, Trash2, Star } from "lucide-react"
+import { Plus, Pencil, Trash2, Star, Copy } from "lucide-react"
 import { toast } from "sonner"
 import { useAuth } from "@/lib/hooks/use-auth"
 
@@ -25,6 +25,7 @@ export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([])
   const [branches, setBranches] = useState<Record<string, Branch>>({})
   const [loading, setLoading] = useState(true)
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
 
   async function loadData() {
     try {
@@ -61,6 +62,41 @@ export default function ListingsPage() {
       await loadData()
     } catch {
       toast.error("Failed to delete listing")
+    }
+  }
+
+  async function handleDuplicate(listing: Listing) {
+    if (!isAdminUser && !hasPermission("LISTINGS_CREATE_EDIT")) {
+      toast.error("You do not have permission to duplicate listings.")
+      return
+    }
+    setDuplicatingId(listing.id)
+    try {
+      const suffix = Date.now().toString().slice(-4)
+      const duplicateTitle = `${listing.title} (Copy)`
+      const duplicateRoomId = listing.roomId
+        ? `${String(listing.roomId).trim().toUpperCase()}-COPY-${suffix}`
+        : ""
+      const duplicateRoomNumber = listing.roomNumber
+        ? `${String(listing.roomNumber).trim()} Copy`
+        : ""
+
+      const payload: Omit<Listing, "id" | "createdAt" | "updatedAt"> = {
+        ...listing,
+        title: duplicateTitle,
+        roomId: duplicateRoomId,
+        roomNumber: duplicateRoomNumber,
+        isActive: false,
+        isFeatured: false,
+      }
+
+      await createListing(payload)
+      toast.success("Listing duplicated as inactive draft")
+      await loadData()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to duplicate listing")
+    } finally {
+      setDuplicatingId(null)
     }
   }
 
@@ -146,6 +182,17 @@ export default function ListingsPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
+                      {(isAdminUser || hasPermission("LISTINGS_CREATE_EDIT")) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Duplicate listing"
+                          disabled={duplicatingId === listing.id}
+                          onClick={() => void handleDuplicate(listing)}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      )}
                       {(isAdminUser || hasPermission("LISTINGS_CREATE_EDIT")) && (
                         <Link href={`/admin/listings/${listing.id}/edit`}>
                           <Button
