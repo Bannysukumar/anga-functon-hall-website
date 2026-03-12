@@ -594,14 +594,19 @@ export default function SettingsPage() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <Label>Contact Phone</Label>
-              <Input
+              <Label>Contact Phone(s)</Label>
+              <Textarea
                 value={settings.contactPhone}
                 disabled={!isAdminUser}
                 onChange={(e) =>
                   setSettings({ ...settings, contactPhone: e.target.value })
                 }
+                placeholder={"+91 98855 55729\n+91 90000 00000\n(or comma separated)"}
+                rows={4}
               />
+              <p className="text-xs text-muted-foreground">
+                Add multiple numbers using new lines or commas.
+              </p>
             </div>
             <div className="sm:col-span-2 mt-2 border-t pt-4">
               <div className="mb-3 flex items-center justify-between">

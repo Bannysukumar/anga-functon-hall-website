@@ -12,14 +12,15 @@ export function Footer() {
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS)
   const contactEmail =
     String(settings.contactEmail || "").trim() || DEFAULT_SETTINGS.contactEmail
-  const contactPhone =
-    String(settings.contactPhone || "").trim() || DEFAULT_SETTINGS.contactPhone
-  const contactPhoneDigits = contactPhone.replace(/\D/g, "")
-  const contactPhoneTelHref = contactPhoneDigits
-    ? `tel:+${contactPhoneDigits}`
-    : `tel:+${DEFAULT_SETTINGS.contactPhone.replace(/\D/g, "")}`
-  const whatsappHref = contactPhoneDigits
-    ? `https://wa.me/${contactPhoneDigits}`
+  const rawPhones = String(settings.contactPhone || "").trim()
+  const fallbackPhone = String(DEFAULT_SETTINGS.contactPhone || "").trim()
+  const contactPhones = (rawPhones || fallbackPhone)
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const whatsappDigits = (contactPhones[0] || fallbackPhone).replace(/\D/g, "")
+  const whatsappHref = whatsappDigits
+    ? `https://wa.me/${whatsappDigits}`
     : "https://wa.me/919885555729"
 
   useEffect(() => {
@@ -143,12 +144,22 @@ export function Footer() {
                   {contactEmail}
                 </a>
               </div>
-              <div className="flex items-center gap-2 text-sm text-amber-100/80">
-                <Phone className="h-4 w-4 shrink-0" />
-                <a href={contactPhoneTelHref} className="hover:text-amber-200">
-                  {contactPhone}
-                </a>
-              </div>
+              {contactPhones.map((phone, index) => {
+                const digits = phone.replace(/\D/g, "")
+                const telHref = digits ? `tel:+${digits}` : undefined
+                return (
+                  <div key={`${phone}-${index}`} className="flex items-center gap-2 text-sm text-amber-100/80">
+                    <Phone className="h-4 w-4 shrink-0" />
+                    {telHref ? (
+                      <a href={telHref} className="hover:text-amber-200">
+                        {phone}
+                      </a>
+                    ) : (
+                      <span>{phone}</span>
+                    )}
+                  </div>
+                )
+              })}
               <div className="flex items-center gap-2 text-sm text-amber-100/80">
                 <MapPin className="h-4 w-4 shrink-0" />
                 <span>Bhadrachalam, Telangana</span>

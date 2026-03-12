@@ -22,9 +22,14 @@ export function WhatsAppFloat({ message = DEFAULT_MESSAGE }: WhatsAppFloatProps)
     getSettings()
       .then((settings) => {
         if (!mounted) return
-        const contactPhone =
+        const contactPhoneValue =
           String(settings.contactPhone || "").trim() || DEFAULT_SETTINGS.contactPhone
-        const digits = contactPhone.replace(/\D/g, "")
+        const firstPhone =
+          contactPhoneValue
+            .split(/[\n,]+/)
+            .map((item) => item.trim())
+            .filter(Boolean)[0] || DEFAULT_SETTINGS.contactPhone
+        const digits = firstPhone.replace(/\D/g, "")
         if (digits) {
           setPhoneDigits(digits)
         }

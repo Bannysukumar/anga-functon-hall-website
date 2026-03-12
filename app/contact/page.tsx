@@ -33,12 +33,17 @@ async function getPublicContactSettings() {
     const data = snap.exists ? (snap.data() as Partial<SiteSettings>) : {}
     const merged = { ...DEFAULT_SETTINGS, ...data }
     const email = String(merged.contactEmail || "").trim() || DEFAULT_SETTINGS.contactEmail
-    const phone = String(merged.contactPhone || "").trim() || DEFAULT_SETTINGS.contactPhone
-    const digits = phone.replace(/\D/g, "")
+    const phoneValue = String(merged.contactPhone || "").trim() || DEFAULT_SETTINGS.contactPhone
+    const phones = phoneValue
+      .split(/[\n,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const primaryPhone = phones[0] || DEFAULT_SETTINGS.contactPhone
+    const digits = primaryPhone.replace(/\D/g, "")
 
     return {
       email,
-      phone,
+      phones,
       phoneLink: digits ? `tel:+${digits}` : "tel:+919885555729",
       whatsappLink: digits ? `https://wa.me/${digits}` : "https://wa.me/919885555729",
       whatsappNumber: digits || "919885555729",
@@ -47,7 +52,7 @@ async function getPublicContactSettings() {
     const fallbackDigits = DEFAULT_SETTINGS.contactPhone.replace(/\D/g, "")
     return {
       email: DEFAULT_SETTINGS.contactEmail,
-      phone: DEFAULT_SETTINGS.contactPhone,
+      phones: [DEFAULT_SETTINGS.contactPhone],
       phoneLink: `tel:+${fallbackDigits}`,
       whatsappLink: `https://wa.me/${fallbackDigits}`,
       whatsappNumber: fallbackDigits,
@@ -106,9 +111,25 @@ export default async function ContactPage() {
                 <Phone className="mt-0.5 h-4 w-4 text-primary" />
                 <div>
                   <p className="font-medium text-foreground">Phone</p>
-                  <a href={contact.phoneLink} className="text-muted-foreground hover:text-primary">
-                    {contact.phone}
-                  </a>
+                  <div className="space-y-1">
+                    {contact.phones.map((phone, index) => {
+                      const digits = phone.replace(/\D/g, "")
+                      const telHref = digits ? `tel:+${digits}` : undefined
+                      return telHref ? (
+                        <a
+                          key={`${phone}-${index}`}
+                          href={telHref}
+                          className="block text-muted-foreground hover:text-primary"
+                        >
+                          {phone}
+                        </a>
+                      ) : (
+                        <p key={`${phone}-${index}`} className="text-muted-foreground">
+                          {phone}
+                        </p>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
               <div className="flex items-start gap-3">
