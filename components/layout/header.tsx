@@ -78,22 +78,22 @@ export function Header() {
         : "/dashboard/operations"
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b border-amber-200/45 bg-[#fffdf6]/92 backdrop-blur-lg supports-[backdrop-filter]:bg-[#fffdf6]/70">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:px-8">
         <Link href="/" className="flex items-center gap-2">
-          <SiteLogo />
+          <SiteLogo textClassName="font-display text-xl font-semibold text-[#2b1f16]" />
         </Link>
 
         <div className="flex items-center gap-2">
-          <nav className="flex items-center rounded-full border bg-secondary/40 p-1">
+          <nav className="hidden items-center rounded-full border border-amber-200/60 bg-white/70 p-1 shadow-sm md:flex">
             {NAV_LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors sm:px-3 sm:py-1.5 sm:text-sm ${
                   pathname === link.href
-                    ? "bg-background text-primary shadow-sm"
-                    : "text-muted-foreground hover:text-primary"
+                    ? "bg-amber-100 text-amber-900 shadow-sm"
+                    : "text-muted-foreground hover:text-amber-900"
                 }`}
               >
                 {link.label}
@@ -172,7 +172,7 @@ export function Header() {
                       Sign In
                     </Link>
                   </Button>
-                  <Button asChild size="sm">
+                  <Button asChild size="sm" className="bg-amber-500 text-amber-950 hover:bg-amber-400">
                     <Link href="/signup">Get Started</Link>
                   </Button>
                 </div>
@@ -197,8 +197,8 @@ export function Header() {
       </div>
 
       {mobileOpen && (
-        <div className="border-t bg-background/95 p-4 backdrop-blur md:hidden">
-          <nav className="mx-auto flex max-w-7xl flex-col gap-3 rounded-xl border bg-secondary/30 p-3 shadow-sm">
+        <div className="border-t border-amber-200/45 bg-[#fffdf6]/95 p-4 backdrop-blur md:hidden">
+          <nav className="mx-auto flex max-w-7xl flex-col gap-3 rounded-xl border border-amber-200/60 bg-white/90 p-3 shadow-sm">
             {NAV_LINKS.map((link) => (
               <Link
                 key={link.href}
@@ -206,8 +206,8 @@ export function Header() {
                 onClick={() => setMobileOpen(false)}
                 className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                   pathname === link.href
-                    ? "bg-background text-primary shadow-sm"
-                    : "text-muted-foreground hover:bg-background/70 hover:text-primary"
+                    ? "bg-amber-100 text-amber-900 shadow-sm"
+                    : "text-muted-foreground hover:bg-background/70 hover:text-amber-900"
                 }`}
               >
                 {link.label}

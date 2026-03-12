@@ -13,24 +13,51 @@ import {
   Clock3,
   MessageCircle,
 } from "lucide-react"
+import { adminDb } from "@/lib/server/firebase-admin"
+import { DEFAULT_SETTINGS } from "@/lib/constants"
+import type { SiteSettings } from "@/lib/types"
 
 const MAP_DIRECTIONS_URL =
   "https://www.google.com/maps/dir/17.6661975,80.8820389//@17.6587978,80.8875853,15z/data=!3m1!4b1!4m4!4m3!1m1!4e1!1m0?entry=ttu&g_ep=EgoyMDI2MDMwMS4xIKXMDSoASAFQAw%3D%3D"
 const MAP_EMBED_URL =
   "https://maps.google.com/maps?q=17.6587978,80.8875853&z=15&output=embed"
-const PHONE_NUMBER = "+91 98855 55729"
-const PHONE_LINK = "tel:+919885555729"
-const EMAIL = "angafunctonhall@gmail.com"
-const WHATSAPP_LINK = "https://wa.me/919885555729"
-const WHATSAPP_NUMBER = "919885555729"
-
 export const metadata: Metadata = {
   title: "Contact Us | Anga Function Hall",
   description:
     "Get in touch with Anga Function Hall for bookings, venue support, and directions.",
 }
 
-export default function ContactPage() {
+async function getPublicContactSettings() {
+  try {
+    const snap = await adminDb.collection("settings").doc("global").get()
+    const data = snap.exists ? (snap.data() as Partial<SiteSettings>) : {}
+    const merged = { ...DEFAULT_SETTINGS, ...data }
+    const email = String(merged.contactEmail || "").trim() || DEFAULT_SETTINGS.contactEmail
+    const phone = String(merged.contactPhone || "").trim() || DEFAULT_SETTINGS.contactPhone
+    const digits = phone.replace(/\D/g, "")
+
+    return {
+      email,
+      phone,
+      phoneLink: digits ? `tel:+${digits}` : "tel:+919885555729",
+      whatsappLink: digits ? `https://wa.me/${digits}` : "https://wa.me/919885555729",
+      whatsappNumber: digits || "919885555729",
+    }
+  } catch {
+    const fallbackDigits = DEFAULT_SETTINGS.contactPhone.replace(/\D/g, "")
+    return {
+      email: DEFAULT_SETTINGS.contactEmail,
+      phone: DEFAULT_SETTINGS.contactPhone,
+      phoneLink: `tel:+${fallbackDigits}`,
+      whatsappLink: `https://wa.me/${fallbackDigits}`,
+      whatsappNumber: fallbackDigits,
+    }
+  }
+}
+
+export default async function ContactPage() {
+  const contact = await getPublicContactSettings()
+
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
@@ -47,13 +74,13 @@ export default function ContactPage() {
             </p>
             <div className="flex flex-wrap gap-3 pt-2">
               <Button asChild>
-                <a href={PHONE_LINK}>
+                <a href={contact.phoneLink}>
                   <Phone />
                   Call Now
                 </a>
               </Button>
               <Button variant="outline" asChild>
-                <a href={`mailto:${EMAIL}`}>
+                <a href={`mailto:${contact.email}`}>
                   <Mail />
                   Send Email
                 </a>
@@ -79,8 +106,8 @@ export default function ContactPage() {
                 <Phone className="mt-0.5 h-4 w-4 text-primary" />
                 <div>
                   <p className="font-medium text-foreground">Phone</p>
-                  <a href={PHONE_LINK} className="text-muted-foreground hover:text-primary">
-                    {PHONE_NUMBER}
+                  <a href={contact.phoneLink} className="text-muted-foreground hover:text-primary">
+                    {contact.phone}
                   </a>
                 </div>
               </div>
@@ -89,10 +116,10 @@ export default function ContactPage() {
                 <div>
                   <p className="font-medium text-foreground">Email</p>
                   <a
-                    href={`mailto:${EMAIL}`}
+                    href={`mailto:${contact.email}`}
                     className="break-all text-muted-foreground hover:text-primary"
                   >
-                    {EMAIL}
+                    {contact.email}
                   </a>
                 </div>
               </div>
@@ -112,7 +139,7 @@ export default function ContactPage() {
               </div>
               <div className="pt-2">
                 <Button asChild className="w-full">
-                  <a href={WHATSAPP_LINK} target="_blank" rel="noopener noreferrer">
+                  <a href={contact.whatsappLink} target="_blank" rel="noopener noreferrer">
                     <MessageCircle />
                     Chat on WhatsApp
                   </a>
@@ -152,7 +179,7 @@ export default function ContactPage() {
         </section>
 
         <section className="mx-auto w-full max-w-7xl px-4 pb-12 lg:px-8">
-          <ContactFormCard email={EMAIL} whatsappNumber={WHATSAPP_NUMBER} />
+          <ContactFormCard email={contact.email} whatsappNumber={contact.whatsappNumber} />
         </section>
       </main>
       <Footer />

@@ -24,21 +24,32 @@ type PublicGalleryItem = {
 }
 
 const BATCH_SIZE = 12
+const GALLERY_CATEGORIES = ["All", "Rooms", "Dining Hall", "Dormitory", "Function Hall", "Exterior", "Corridor"] as const
+
+function inferCategory(title: string, description: string) {
+  const text = `${title} ${description}`.toLowerCase()
+  if (text.includes("dining")) return "Dining Hall"
+  if (text.includes("dormitory") || text.includes("bed")) return "Dormitory"
+  if (text.includes("function") || text.includes("hall")) return "Function Hall"
+  if (text.includes("corridor")) return "Corridor"
+  if (text.includes("exterior") || text.includes("outside")) return "Exterior"
+  return "Rooms"
+}
 
 export default function GalleryPage() {
   const [items, setItems] = useState<PublicGalleryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [visibleCount, setVisibleCount] = useState<number>(BATCH_SIZE)
+  const [activeCategory, setActiveCategory] = useState<(typeof GALLERY_CATEGORIES)[number]>("All")
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
 
-  const selected = useMemo(
-    () =>
-      selectedIndex != null && selectedIndex >= 0 && selectedIndex < items.length
-        ? items[selectedIndex]
-        : null,
-    [selectedIndex, items]
-  )
+  const filteredItems = useMemo(() => {
+    if (activeCategory === "All") return items
+    return items.filter((item) =>
+      inferCategory(String(item.title || ""), String(item.description || "")) === activeCategory
+    )
+  }, [activeCategory, items])
 
   useEffect(() => {
     let cancelled = false
@@ -64,7 +75,7 @@ export default function GalleryPage() {
   // Reset visible count when items change
   useEffect(() => {
     setVisibleCount(BATCH_SIZE)
-  }, [items.length])
+  }, [items.length, activeCategory])
 
   // Infinite scroll: load more when sentinel enters viewport
   useEffect(() => {
@@ -76,7 +87,7 @@ export default function GalleryPage() {
           if (entry.isIntersecting) {
             setVisibleCount((current) => {
               const next = current + BATCH_SIZE
-              return next > items.length ? items.length : next
+              return next > filteredItems.length ? filteredItems.length : next
             })
           }
         })
@@ -85,55 +96,80 @@ export default function GalleryPage() {
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [items.length])
+  }, [filteredItems.length])
 
   // Preload neighbouring images when lightbox is open
   useEffect(() => {
     if (selectedIndex == null) return
     if (typeof window === "undefined" || !window.Image) return
     const preload = (index: number) => {
-      if (index < 0 || index >= items.length) return
+      if (index < 0 || index >= filteredItems.length) return
       const img = new window.Image()
-      img.src = items[index].imageUrl
+      img.src = filteredItems[index].imageUrl
     }
     preload(selectedIndex + 1)
     preload(selectedIndex - 1)
-  }, [selectedIndex, items])
+  }, [selectedIndex, filteredItems])
 
-  const visibleItems = useMemo(
-    () => items.slice(0, visibleCount),
-    [items, visibleCount]
+  const selected = useMemo(
+    () =>
+      selectedIndex != null && selectedIndex >= 0 && selectedIndex < filteredItems.length
+        ? filteredItems[selectedIndex]
+        : null,
+    [selectedIndex, filteredItems]
   )
 
-  const showLoadMoreSentinel = visibleCount < items.length && !loading
+  const visibleItems = useMemo(
+    () => filteredItems.slice(0, visibleCount),
+    [filteredItems, visibleCount]
+  )
+
+  const showLoadMoreSentinel = visibleCount < filteredItems.length && !loading
 
   const openAt = (index: number) => setSelectedIndex(index)
   const closeLightbox = () => setSelectedIndex(null)
   const goNext = () =>
     setSelectedIndex((current) => {
-      if (current == null || items.length === 0) return current
-      return (current + 1) % items.length
+      if (current == null || filteredItems.length === 0) return current
+      return (current + 1) % filteredItems.length
     })
   const goPrev = () =>
     setSelectedIndex((current) => {
-      if (current == null || items.length === 0) return current
-      return (current - 1 + items.length) % items.length
+      if (current == null || filteredItems.length === 0) return current
+      return (current - 1 + filteredItems.length) % filteredItems.length
     })
 
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
-      <main className="flex-1 bg-secondary/20 px-4 py-8 lg:px-8">
+      <main className="luxury-bg flex-1 px-4 py-8 lg:px-8">
         <section className="mx-auto flex max-w-6xl flex-col gap-6">
           <header className="flex flex-col gap-2 text-center">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-              Gallery
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Luxury Gallery</p>
+            <h1 className="font-display text-3xl font-bold tracking-tight text-foreground md:text-5xl">
+              Visual Story of Anga Function Hall
             </h1>
             <p className="mx-auto max-w-2xl text-sm text-muted-foreground md:text-base">
               A glimpse of our halls, rooms, decor and celebrations at Anga
               Function Hall.
             </p>
           </header>
+          <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-2">
+            {GALLERY_CATEGORIES.map((category) => (
+              <button
+                key={category}
+                type="button"
+                onClick={() => setActiveCategory(category)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                  activeCategory === category
+                    ? "border-amber-400 bg-amber-100 text-amber-900"
+                    : "border-border bg-white text-muted-foreground hover:border-amber-200 hover:text-foreground"
+                }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
 
           {loading ? (
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -163,15 +199,15 @@ export default function GalleryPage() {
             </div>
           ) : (
             <>
-              <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              <div className="columns-2 gap-4 sm:columns-3 lg:columns-4">
                 {visibleItems.map((item, idx) => (
                   <button
                     key={item.id}
                     type="button"
-                    className="group text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                    className="group mb-4 block w-full break-inside-avoid text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                     onClick={() => openAt(idx)}
                   >
-                    <Card className="overflow-hidden rounded-xl border border-border/60 bg-card/80 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+                    <Card className="overflow-hidden rounded-xl border border-border/60 bg-card/80 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:[transform:perspective(1000px)_rotateX(2deg)_rotateY(-2deg)]">
                       <div className="relative aspect-[4/3] w-full overflow-hidden">
                         <Image
                           src={item.imageUrl}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { motion } from "framer-motion"
 import { getListings, getBranches } from "@/lib/firebase-db"
 import type { Listing, Branch } from "@/lib/types"
 import { ListingCard } from "@/components/listings/listing-card"
@@ -45,20 +46,28 @@ export function FeaturedListings() {
     <section className="mx-auto max-w-7xl px-4 py-16 lg:px-8">
       <div className="flex flex-col gap-8">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-foreground text-balance">
-            Featured Venues
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Premium Picks</p>
+          <h2 className="font-display mt-3 text-3xl text-foreground text-balance md:text-4xl">
+            Featured Luxury Properties
           </h2>
-          <p className="mt-2 text-muted-foreground">
-            Handpicked premium venues for your special events
+          <p className="mt-2 text-sm text-muted-foreground">
+            Handpicked stays and event venues with elegant ambience and premium comfort.
           </p>
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {listings.map((listing) => (
-            <ListingCard
+          {listings.map((listing, index) => (
+            <motion.div
               key={listing.id}
-              listing={listing}
-              branchName={branches[listing.branchId]?.name}
-            />
+              initial={{ opacity: 0, y: 18 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-20px" }}
+              transition={{ duration: 0.33, delay: index * 0.03 }}
+            >
+              <ListingCard
+                listing={listing}
+                branchName={branches[listing.branchId]?.name}
+              />
+            </motion.div>
           ))}
         </div>
       </div>

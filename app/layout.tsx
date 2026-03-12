@@ -1,21 +1,29 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Playfair_Display, Poppins } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from 'sonner'
 import { AuthProvider } from '@/lib/hooks/use-auth'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const playfairDisplay = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-display",
+})
+
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-sans",
+})
 
 export const metadata: Metadata = {
-  title: 'Anga Function Hall',
-  description: 'Anga Function Hall booking platform for halls, rooms, dormitory beds, dining and tours.',
+  title: 'Anga Function Hall | Luxury Hotel & Venue Booking',
+  description: 'Luxury hotel booking platform for premium rooms, halls, dormitory beds and curated hospitality experiences.',
   generator: 'v0.app',
 }
 
 export const viewport = {
-  themeColor: '#3b5fc0',
+  themeColor: '#1e160f',
 }
 
 export default function RootLayout({
@@ -27,7 +35,7 @@ export default function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="font-sans antialiased">
+      <body className={`${playfairDisplay.variable} ${poppins.variable} font-sans antialiased luxury-bg`}>
         <AuthProvider>
           {children}
           <Toaster position="top-right" richColors closeButton />

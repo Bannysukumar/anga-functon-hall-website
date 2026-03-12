@@ -141,6 +141,10 @@ export default function SettingsPage() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
+    if (!isAdminUser) {
+      toast.error("Only admin can update settings.")
+      return
+    }
     setSaving(true)
     try {
       await updateSettings(settings)
@@ -583,6 +587,7 @@ export default function SettingsPage() {
               <Input
                 type="email"
                 value={settings.contactEmail}
+                disabled={!isAdminUser}
                 onChange={(e) =>
                   setSettings({ ...settings, contactEmail: e.target.value })
                 }
@@ -592,6 +597,7 @@ export default function SettingsPage() {
               <Label>Contact Phone</Label>
               <Input
                 value={settings.contactPhone}
+                disabled={!isAdminUser}
                 onChange={(e) =>
                   setSettings({ ...settings, contactPhone: e.target.value })
                 }

@@ -312,6 +312,9 @@ export interface HeroBanner {
   imageUrl: string
   title: string
   subtitle: string
+  isActive?: boolean
+  order?: number
+  uploadedAt?: string
 }
 
 export interface SocialLink {

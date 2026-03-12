@@ -68,7 +68,7 @@ function cardClasses(status: RoomVisualStatus, disabled = false) {
   if (status === "available_ac") {
     return "border-emerald-400 bg-emerald-50 text-emerald-700"
   }
-  return "border-blue-400 bg-blue-50 text-blue-700"
+  return "border-amber-400 bg-amber-50 text-amber-800"
 }
 
 export function RoomLayoutMap({
@@ -134,7 +134,7 @@ export function RoomLayoutMap({
         <Badge variant="outline" className="border-emerald-400 text-emerald-700">
           Available AC
         </Badge>
-        <Badge variant="outline" className="border-blue-400 text-blue-700">
+        <Badge variant="outline" className="border-amber-400 text-amber-800">
           Available Non-AC
         </Badge>
         <Badge variant="outline" className="border-slate-300 text-slate-600">

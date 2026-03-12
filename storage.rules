@@ -5,6 +5,11 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function isAdmin() {
+      return signedIn() &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
     match /listings/{listingId}/{allPaths=**} {
       allow read: if true;
       allow write: if signedIn() &&
@@ -18,14 +23,14 @@ service firebase.storage {
 
     match /branding/{allPaths=**} {
       allow read: if true;
-      allow write: if signedIn() &&
+      allow write: if isAdmin() &&
         request.resource != null &&
         request.resource.contentType.matches("image/.*");
     }
 
     match /banners/{allPaths=**} {
       allow read: if true;
-      allow write: if signedIn() &&
+      allow write: if isAdmin() &&
         request.resource != null &&
         request.resource.contentType.matches("image/.*");
     }

@@ -259,7 +259,7 @@ service cloud.firestore {
 
     match /settings/{settingsId} {
       allow read: if true;
-      allow write: if isAdmin() || hasStaffPermission("SETTINGS_EDIT");
+      allow write: if isAdmin();
     }
 
     match /secureSettings/{docId} {

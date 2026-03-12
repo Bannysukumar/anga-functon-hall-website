@@ -1,6 +1,10 @@
-import { MessageCircle } from "lucide-react"
+ "use client"
 
-const WHATSAPP_NUMBER = "919885555729"
+import { MessageCircle } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { getSettings } from "@/lib/firebase-db"
+import { DEFAULT_SETTINGS } from "@/lib/constants"
+
 const DEFAULT_MESSAGE =
   "Hi Anga Function Hall, I would like to know more about booking details."
 
@@ -9,7 +13,34 @@ type WhatsAppFloatProps = {
 }
 
 export function WhatsAppFloat({ message = DEFAULT_MESSAGE }: WhatsAppFloatProps) {
-  const href = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`
+  const [phoneDigits, setPhoneDigits] = useState(
+    DEFAULT_SETTINGS.contactPhone.replace(/\D/g, "")
+  )
+
+  useEffect(() => {
+    let mounted = true
+    getSettings()
+      .then((settings) => {
+        if (!mounted) return
+        const contactPhone =
+          String(settings.contactPhone || "").trim() || DEFAULT_SETTINGS.contactPhone
+        const digits = contactPhone.replace(/\D/g, "")
+        if (digits) {
+          setPhoneDigits(digits)
+        }
+      })
+      .catch(() => {
+        // Keep default number fallback.
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const href = useMemo(
+    () => `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`,
+    [message, phoneDigits]
+  )
 
   return (
     <a

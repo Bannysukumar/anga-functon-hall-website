@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
+import { motion } from "framer-motion"
 import { getListings, getBranches } from "@/lib/firebase-db"
 import type { Listing, Branch, ListingType } from "@/lib/types"
 import { LISTING_TYPES, LISTING_TYPE_LABELS } from "@/lib/constants"
@@ -78,21 +79,23 @@ function ExplorePageContent() {
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
-      <main className="flex-1">
+      <main className="flex-1 luxury-bg">
         <div className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
           <div className="flex flex-col gap-6">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">
-                Explore Venues
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Explore</p>
+              <h1 className="font-display text-3xl font-semibold text-foreground md:text-4xl">
+                Luxury Rooms & Venues
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {filtered.length} venue{filtered.length !== 1 ? "s" : ""}{" "}
                 available
               </p>
             </div>
 
             {/* Filters */}
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="luxury-card rounded-2xl p-3 sm:p-4">
+              <div className="flex flex-wrap items-center gap-3">
               <div className="relative flex-1 min-w-[200px] max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -143,12 +146,13 @@ function ExplorePageContent() {
                   variant="ghost"
                   size="sm"
                   onClick={clearFilters}
-                  className="text-muted-foreground"
+                  className="text-amber-900"
                 >
                   <X className="mr-1 h-3 w-3" />
                   Clear
                 </Button>
               )}
+              </div>
             </div>
 
             {/* Results */}
@@ -168,13 +172,20 @@ function ExplorePageContent() {
                 )}
               </div>
             ) : (
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((listing) => (
-                  <ListingCard
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+                {filtered.map((listing, index) => (
+                  <motion.div
                     key={listing.id}
-                    listing={listing}
-                    branchName={branches[listing.branchId]?.name}
-                  />
+                    initial={{ opacity: 0, y: 14 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-30px" }}
+                    transition={{ duration: 0.28, delay: index * 0.02 }}
+                  >
+                    <ListingCard
+                      listing={listing}
+                      branchName={branches[listing.branchId]?.name}
+                    />
+                  </motion.div>
                 ))}
               </div>
             )}
