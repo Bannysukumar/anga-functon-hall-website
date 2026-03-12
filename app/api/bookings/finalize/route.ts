@@ -15,6 +15,15 @@ function generateInvoiceNumber(): string {
   return `INV-${dateStr}-${rand}`
 }
 
+function resolveAvailabilitySlotId(listingType: string, intentSlotId: unknown): string {
+  const normalizedType = String(listingType || "")
+  const isSlotBased = ["function_hall", "open_function_hall", "dining_hall", "local_tour"].includes(
+    normalizedType
+  )
+  if (isSlotBased) return String(intentSlotId || "fullday")
+  return "default"
+}
+
 export async function POST(request: Request) {
   try {
     const idToken = readBearerToken(request)
@@ -90,7 +99,7 @@ export async function POST(request: Request) {
       if (guestCount < minGuestCount) {
         throw new Error(`Minimum ${minGuestCount} guest(s) required for this listing.`)
       }
-      const slotId = intent.slotId || "fullday"
+      const slotId = resolveAvailabilitySlotId(String(listing?.type || ""), intent.slotId)
       const roomResourceId =
         String(listing?.roomId || "").trim() &&
         !["function_hall", "open_function_hall", "dining_hall", "local_tour"].includes(

@@ -8,6 +8,15 @@ function generateInvoiceNumber(): string {
   return `INV-${dateStr}-${rand}`
 }
 
+function resolveAvailabilitySlotId(listingType: string, intentSlotId: unknown): string {
+  const normalizedType = String(listingType || "")
+  const isSlotBased = ["function_hall", "open_function_hall", "dining_hall", "local_tour"].includes(
+    normalizedType
+  )
+  if (isSlotBased) return String(intentSlotId || "fullday")
+  return "default"
+}
+
 /**
  * Creates a booking from a verified intent. Used by finalize (frontend) and webhook (payment.captured).
  * Intent must already have status "verified" and razorpayPaymentId set.
@@ -59,7 +68,7 @@ export async function createBookingFromIntent(
     const minGuestCount = Math.max(1, Number(listing?.minGuestCount || 1))
     const guestCount = Math.max(1, Number(intent.guestCount || 1))
     if (guestCount < minGuestCount) throw new Error(`Minimum ${minGuestCount} guest(s) required.`)
-    const slotId = intent.slotId || "fullday"
+    const slotId = resolveAvailabilitySlotId(String(listing?.type || ""), intent.slotId)
     const roomResourceId =
       String(listing?.roomId || "").trim() &&
       !["function_hall", "open_function_hall", "dining_hall", "local_tour"].includes(String(listing?.type || ""))

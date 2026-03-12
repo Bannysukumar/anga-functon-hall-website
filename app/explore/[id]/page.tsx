@@ -486,7 +486,9 @@ export default function ListingDetailPage() {
       if (checkIn && checkOut) {
         for (let cursor = checkIn; cursor < checkOut; cursor = addDays(cursor, 1)) {
           const key = format(cursor, "yyyy-MM-dd")
-          const lock = inlineLocks.find((entry) => entry.date === key && entry.slotId === "default")
+          const lock = inlineLocks.find(
+            (entry) => entry.date === key && (entry.slotId === "default" || entry.slotId === "fullday")
+          )
           if (lock?.isBlocked) blockedAll = true
           if (Array.isArray(lock?.selectedRoomNumbers)) {
             lock.selectedRoomNumbers.forEach((room) => bookedRoomNumbers.add(String(room).trim()))
@@ -528,7 +530,9 @@ export default function ListingDetailPage() {
         let sold = false
         for (let cursor = checkIn; cursor < checkOut; cursor = addDays(cursor, 1)) {
           const key = format(cursor, "yyyy-MM-dd")
-          const lock = roomLocks.find((entry) => entry.date === key && entry.slotId === "default")
+          const lock = roomLocks.find(
+            (entry) => entry.date === key && (entry.slotId === "default" || entry.slotId === "fullday")
+          )
           if (lock?.isBlocked || Number(lock?.bookedUnits || 0) >= Number(lock?.maxUnits || room.inventory || 1)) {
             sold = true
             break
