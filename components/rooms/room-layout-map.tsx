@@ -25,6 +25,8 @@ export interface RoomVisualItem {
   roomType: "ac" | "non_ac"
   status: RoomVisualStatus
   disabled?: boolean
+  /** Optional tooltip when status is booked (time-based overlap). */
+  bookedUntilLabel?: string
 }
 
 interface RoomLayoutMapProps {
@@ -43,15 +45,24 @@ function floorLabel(floor: number) {
   return `${floor}th Floor`
 }
 
+function isBookedStatus(status: RoomVisualStatus) {
+  return (
+    status === "booked" ||
+    status === "booked_ac" ||
+    status === "booked_non_ac" ||
+    status === "hall_booked"
+  )
+}
+
 function cardClasses(status: RoomVisualStatus, disabled = false) {
   if (disabled || status === "booked") {
-    return "border-slate-300 bg-slate-100 text-slate-500 opacity-75 cursor-not-allowed"
+    return "border-red-500 bg-red-50 text-red-800 cursor-not-allowed opacity-95"
   }
   if (status === "booked_ac") {
     return "border-red-400 bg-red-50 text-red-700 cursor-not-allowed"
   }
   if (status === "booked_non_ac") {
-    return "border-orange-400 bg-orange-50 text-orange-700 cursor-not-allowed"
+    return "border-red-400 bg-red-50 text-red-700 cursor-not-allowed"
   }
   if (status === "hall_booked") {
     return "border-purple-400 bg-purple-50 text-purple-700 cursor-not-allowed"
@@ -137,7 +148,7 @@ export function RoomLayoutMap({
         <Badge variant="outline" className="border-amber-400 text-amber-800">
           Available Non-AC
         </Badge>
-        <Badge variant="outline" className="border-slate-300 text-slate-600">
+        <Badge variant="outline" className="border-red-400 text-red-700">
           Booked
         </Badge>
         <Badge variant="outline" className="border-fuchsia-400 text-fuchsia-700">
@@ -187,28 +198,37 @@ export function RoomLayoutMap({
                     const status = selected ? "selected" : room.status
                     const disabled =
                       room.disabled ||
-                    room.status === "booked" ||
-                    room.status === "booked_ac" ||
-                    room.status === "booked_non_ac" ||
-                    room.status === "hall_booked" ||
+                      isBookedStatus(room.status) ||
                       room.status === "maintenance" ||
                       room.status === "blocked"
+                    const bookedLabel =
+                      disabled && isBookedStatus(room.status)
+                        ? room.bookedUntilLabel
+                          ? `Already booked — ${room.bookedUntilLabel}`
+                          : "Already booked for these dates"
+                        : undefined
                     return (
                       <button
                         key={room.id}
                         type="button"
                         disabled={disabled}
+                        title={bookedLabel}
                         onClick={() => onToggleRoom?.(room)}
                         className={cn(
                           "w-full aspect-square rounded-lg border p-2 transition-all duration-150",
                           "flex flex-col items-center justify-center text-center",
-                          "hover:scale-[1.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                          !disabled &&
+                            "hover:scale-[1.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                           cardClasses(status, disabled)
                         )}
                       >
                         <BedDouble className="mb-1 h-4 w-4" />
                         <span className="text-xs font-semibold leading-tight">
-                          {disabled ? "Sold" : `Room ${room.roomNumber}`}
+                          {disabled && isBookedStatus(room.status)
+                            ? "Booked"
+                            : disabled
+                              ? "Unavailable"
+                              : `Room ${room.roomNumber}`}
                         </span>
                         <p className="mt-1 text-xs font-semibold">{`₹${Math.round(room.price).toLocaleString("en-IN")}`}</p>
                         <p className="text-[10px] uppercase tracking-wide opacity-90">

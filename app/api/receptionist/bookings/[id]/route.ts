@@ -4,7 +4,10 @@ import { adminDb } from "@/lib/server/firebase-admin"
 import { requirePermission, toHttpError } from "@/lib/server/permission-check"
 import { updateBookingSchema } from "@/lib/server/receptionist-schemas"
 import { getRequestMeta, sanitizeText } from "@/lib/server/request-meta"
-import { markReservationsCancelled, releaseBookingAvailability } from "@/lib/server/booking-cancellation"
+import {
+  markReservationsCancelled,
+  releaseBookingAvailability,
+} from "@/lib/server/booking-cancellation"
 import { calculateRefundAmount } from "@/lib/server/refund-policy"
 
 function actionToPermission(action: string) {
@@ -96,13 +99,10 @@ export async function PATCH(
       updates.checkInAt = Timestamp.now()
       updates.checkedInBy = uid
     } else if (action === "check_out") {
-      if (currentStatus !== "checked_in") {
+      if (!["confirmed", "checked_in"].includes(currentStatus)) {
         return NextResponse.json(
           {
-            error:
-              currentStatus === "confirmed"
-                ? "Guest must be checked in before check-out. Perform check-in first."
-                : "Only checked-in bookings can be checked out.",
+            error: "Only confirmed or checked-in bookings can be checked out.",
           },
           { status: 409 }
         )
@@ -139,6 +139,9 @@ export async function PATCH(
     if (action === "cancel") {
       await releaseBookingAvailability(id, Number(current.unitsBooked || 1))
       await markReservationsCancelled(id)
+    }
+    if (action === "check_out") {
+      await releaseBookingAvailability(id, Number(current.unitsBooked || 1))
     }
     await adminDb.collection("auditLogs").add({
       entity: "booking",

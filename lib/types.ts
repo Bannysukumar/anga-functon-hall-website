@@ -125,9 +125,17 @@ export interface Booking {
   id: string
   roomId?: string
   roomNumber?: string
+  /** Display label e.g. "Floor 1" (receptionist / multi-room listings) */
+  roomFloorLabel?: string
   roomTypeDetail?: "ac" | "non_ac"
   selectedRoomListingIds?: string[]
   selectedRoomNumbers?: string[]
+  /** Receptionist / manual bookings */
+  customerName?: string
+  customerPhone?: string
+  customerEmail?: string
+  customerId?: string | null
+  bookingNotes?: string
   userId: string
   listingId: string
   branchId: string

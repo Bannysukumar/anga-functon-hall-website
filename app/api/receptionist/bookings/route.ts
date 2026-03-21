@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { ZodError } from "zod"
 import { Timestamp } from "firebase-admin/firestore"
 import { adminDb } from "@/lib/server/firebase-admin"
 import { requirePermission, toHttpError } from "@/lib/server/permission-check"
@@ -8,6 +9,11 @@ import {
 } from "@/lib/server/receptionist-schemas"
 import { getRequestMeta, sanitizeText } from "@/lib/server/request-meta"
 import { buildBookingConfirmationMessage, sendWhatsAppMessage } from "@/lib/server/whatsapp"
+import {
+  filterRoomsByTypeAndFloor,
+  parseRoomConfigurations,
+  roomIntervalsOverlap,
+} from "@/lib/server/receptionist-room-availability"
 
 function toInvoiceNumber(counter: number) {
   const year = new Date().getFullYear()
@@ -80,6 +86,47 @@ function isSingleBookingListing(listingType: string) {
   return ["function_hall", "open_function_hall", "dining_hall"].includes(String(listingType || ""))
 }
 
+/** Serialize Firestore Timestamps to ISO strings so the client can always parse dates reliably. */
+function timestampToIso(value: unknown): string | null {
+  if (value == null) return null
+  if (value instanceof Timestamp) {
+    const d = value.toDate()
+    return Number.isNaN(d.getTime()) ? null : d.toISOString()
+  }
+  if (typeof (value as { toDate?: () => Date }).toDate === "function") {
+    try {
+      const d = (value as { toDate: () => Date }).toDate()
+      return Number.isNaN(d.getTime()) ? null : d.toISOString()
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+const BOOKING_TS_FIELDS = [
+  "checkInDate",
+  "checkOutDate",
+  "scheduledCheckInAt",
+  "scheduledCheckOutAt",
+  "checkInAt",
+  "checkOutAt",
+  "cancelledAt",
+  "createdAt",
+  "updatedAt",
+  "paidAt",
+] as const
+
+function serializeBookingForClient(booking: Record<string, unknown>) {
+  const out: Record<string, unknown> = { ...booking }
+  for (const k of BOOKING_TS_FIELDS) {
+    if (k in out && out[k] != null) {
+      out[k] = timestampToIso(out[k])
+    }
+  }
+  return out
+}
+
 export async function GET(request: Request) {
   try {
     await requirePermission(request, "view_bookings")
@@ -112,6 +159,7 @@ export async function GET(request: Request) {
         const branch = String(booking.branchName || "").toLowerCase()
         const customerName = String(booking.customerName || "").toLowerCase()
         const customerPhone = String(booking.customerPhone || "").toLowerCase()
+        const customerEmail = String(booking.customerEmail || "").toLowerCase()
         const id = String(booking.id || "").toLowerCase()
         return (
           listingTitle.includes(search) ||
@@ -119,6 +167,7 @@ export async function GET(request: Request) {
           branch.includes(search) ||
           customerName.includes(search) ||
           customerPhone.includes(search) ||
+          customerEmail.includes(search) ||
           id.includes(search)
         )
       })
@@ -136,8 +185,11 @@ export async function GET(request: Request) {
     const total = items.length
     const start = (page - 1) * limit
     const end = start + limit
+    const pageItems = items
+      .slice(start, end)
+      .map((b) => serializeBookingForClient(b as Record<string, unknown>))
     return NextResponse.json({
-      items: items.slice(start, end),
+      items: pageItems,
       total,
       page,
       limit,
@@ -159,12 +211,15 @@ export async function POST(request: Request) {
     const body = createBookingSchema.parse(await request.json())
 
     const listingId = sanitizeText(body.listingId, 120)
-    const functionDateTime = sanitizeText(body.functionDateTime, 60)
+    const functionDateTime = sanitizeText(body.functionDateTime, 200)
     const paymentMethod = sanitizeText(body.paymentMethod || "cash", 40)
     const notes = sanitizeText(body.notes || "", 500)
-    const requestedRoomNumbers = Array.isArray(body.selectedRoomNumbers)
-      ? body.selectedRoomNumbers.map((value) => sanitizeText(String(value), 60)).filter(Boolean)
-      : []
+    const singleRoom = sanitizeText(String(body.selectedRoomNumber || ""), 60)
+    const requestedRoomNumbers = singleRoom
+      ? [singleRoom]
+      : Array.isArray(body.selectedRoomNumbers)
+        ? body.selectedRoomNumbers.map((value) => sanitizeText(String(value), 60)).filter(Boolean)
+        : []
     const guestCount = Math.max(1, Number(body.guestCount))
     const advanceAmount = Math.max(0, Number(body.advanceAmount))
     const totalAmount = Math.max(0, Number(body.totalAmount))
@@ -188,6 +243,116 @@ export async function POST(request: Request) {
     const settingsSnap = await adminDb.collection("settings").doc("global").get()
     const globalSettings = (settingsSnap.data() || {}) as Record<string, unknown>
 
+    const listingPreviewSnap = await listingRef.get()
+    if (!listingPreviewSnap.exists) {
+      return NextResponse.json({ error: "Listing not found." }, { status: 404 })
+    }
+    const listingPreview = listingPreviewSnap.data() || {}
+    const listingTypePreview = String(listingPreview.type || "function_hall")
+
+    const checkInDate = new Date(functionDateTime)
+    if (Number.isNaN(checkInDate.getTime())) {
+      return NextResponse.json({ error: "Invalid check-in date/time." }, { status: 400 })
+    }
+    const nowMs = Date.now()
+    if (checkInDate.getTime() < nowMs - 60_000) {
+      return NextResponse.json({ error: "Cannot create bookings in the past." }, { status: 400 })
+    }
+
+    const checkOutRaw = String(body.checkOutDateTime || "").trim()
+    const defOutTime = String(
+      listingPreview.defaultCheckOutTime ?? globalSettings.defaultCheckOutTime ?? "11:00"
+    ).trim() || "11:00"
+    let checkOutDate: Date
+    if (checkOutRaw) {
+      checkOutDate = new Date(checkOutRaw)
+    } else {
+      const checkInDateKey = normalizeDateKey(functionDateTime)
+      if (!checkInDateKey) {
+        return NextResponse.json({ error: "Invalid check-in date." }, { status: 400 })
+      }
+      checkOutDate = new Date(`${checkInDateKey}T${defOutTime}`)
+      if (checkOutDate.getTime() <= checkInDate.getTime()) {
+        checkOutDate = new Date(checkOutDate.getTime() + 24 * 60 * 60 * 1000)
+      }
+    }
+    if (Number.isNaN(checkOutDate.getTime()) || checkOutDate.getTime() <= checkInDate.getTime()) {
+      return NextResponse.json(
+        { error: "Check-out must be after check-in." },
+        { status: 400 }
+      )
+    }
+
+    const existingOverlapSnap = await adminDb
+      .collection("bookings")
+      .where("listingId", "==", listingId)
+      .limit(500)
+      .get()
+    const existingBookingsOverlap = existingOverlapSnap.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Array<Record<string, unknown>>
+
+    let resolvedSelectedRoomNumbers = requestedRoomNumbers
+    let resolvedRoomTypeDetail: "ac" | "non_ac" = "ac"
+    let resolvedFloorLabel = ""
+
+    if (listingTypePreview === "room") {
+      const configs = parseRoomConfigurations(listingPreview as Record<string, unknown>)
+      let roomsToBook =
+        requestedRoomNumbers.length > 0
+          ? requestedRoomNumbers
+          : String(listingPreview.roomNumber || "").trim()
+            ? [String(listingPreview.roomNumber || "").trim()]
+            : []
+      if (configs.length > 0) {
+        let filtered = configs
+        if (body.roomType) {
+          filtered = filtered.filter((c) => c.roomType === body.roomType)
+        }
+        if (body.floor != null && !Number.isNaN(Number(body.floor))) {
+          filtered = filtered.filter((c) => c.floorNumber === Number(body.floor))
+        }
+        const allowed = new Set(filtered.map((r) => r.roomNumber))
+        roomsToBook = roomsToBook.filter((n) => allowed.has(n))
+      }
+      if (configs.length > 0 && roomsToBook.length === 0) {
+        return NextResponse.json(
+          { error: "Select room type, floor, and a room number that matches your filters." },
+          { status: 400 }
+        )
+      }
+      resolvedSelectedRoomNumbers = roomsToBook
+      for (const num of roomsToBook) {
+        if (
+          roomIntervalsOverlap(checkInDate, checkOutDate, existingBookingsOverlap, num, listingId)
+        ) {
+          return NextResponse.json(
+            { error: "Room already booked for the selected time range." },
+            { status: 409 }
+          )
+        }
+        const cfg = configs.find((c) => c.roomNumber === num)
+        if (cfg) {
+          resolvedRoomTypeDetail = cfg.roomType
+          resolvedFloorLabel =
+            cfg.floorNumber != null ? `Floor ${cfg.floorNumber}` : resolvedFloorLabel
+        } else if (String(listingPreview.roomNumber || "").trim() === num) {
+          resolvedRoomTypeDetail =
+            String(listingPreview.roomTypeDetail || "ac") === "non_ac" ? "non_ac" : "ac"
+          const fn = Number(listingPreview.floorNumber)
+          if (Number.isFinite(fn)) resolvedFloorLabel = `Floor ${fn}`
+        }
+      }
+    }
+
+    if (listingTypePreview === "room" && resolvedSelectedRoomNumbers.length === 0) {
+      return NextResponse.json(
+        { error: "Room number is required for room bookings." },
+        { status: 400 }
+      )
+    }
+
     const result = await adminDb.runTransaction(async (transaction) => {
       const listingSnap = await transaction.get(listingRef)
       if (!listingSnap.exists) throw new Error("LISTING_NOT_FOUND")
@@ -204,21 +369,17 @@ export async function POST(request: Request) {
       const counterSnap = await transaction.get(counterRef)
       const nextCounter = Number(counterSnap.data()?.value || 0) + 1
       const invoiceNumber = toInvoiceNumber(nextCounter)
-      const checkInDate = new Date(functionDateTime)
-      const checkInTs = Timestamp.fromDate(
-        Number.isNaN(checkInDate.getTime()) ? new Date() : checkInDate
-      )
+      const checkInTs = Timestamp.fromDate(checkInDate)
+      const checkOutTs = Timestamp.fromDate(checkOutDate)
       const checkInDateKey = normalizeDateKey(functionDateTime)
       if (!checkInDateKey) throw new Error("INVALID_DATE")
-      const checkInTime = String(listing.defaultCheckInTime ?? globalSettings.defaultCheckInTime ?? "12:00").trim() || "12:00"
-      const checkOutTime = String(listing.defaultCheckOutTime ?? globalSettings.defaultCheckOutTime ?? "11:00").trim() || "11:00"
-      const scheduledCheckInAt = Timestamp.fromDate(new Date(`${checkInDateKey}T${checkInTime}`))
-      const scheduledCheckOutAt = Timestamp.fromDate(new Date(`${checkInDateKey}T${checkOutTime}`))
+      const scheduledCheckInAt = Timestamp.fromDate(checkInDate)
+      const scheduledCheckOutAt = Timestamp.fromDate(checkOutDate)
       const bookingSlot = resolveBookingSlot(listing, functionDateTime)
       const listingType = String(listing.type || "function_hall")
       const selectedRoomNumbers = listingType === "room"
-        ? requestedRoomNumbers.length > 0
-          ? requestedRoomNumbers
+        ? resolvedSelectedRoomNumbers.length > 0
+          ? resolvedSelectedRoomNumbers
           : String(listing.roomNumber || "").trim()
             ? [String(listing.roomNumber || "").trim()]
             : []
@@ -336,9 +497,16 @@ export async function POST(request: Request) {
         customerEmail: resolvedCustomerEmail,
         listingId,
         roomId: String(listing.roomId || ""),
-        roomNumber: String(listing.roomNumber || ""),
+        roomNumber:
+          selectedRoomNumbers[0] ||
+          String(listing.roomNumber || ""),
         roomTypeDetail:
-          String(listing.roomTypeDetail || "ac") === "non_ac" ? "non_ac" : "ac",
+          listingType === "room"
+            ? resolvedRoomTypeDetail
+            : String(listing.roomTypeDetail || "ac") === "non_ac"
+              ? "non_ac"
+              : "ac",
+        roomFloorLabel: resolvedFloorLabel || null,
         selectedRoomListingIds: selectedRoomNumbers.length > 0 ? [listingId] : [],
         selectedRoomNumbers,
         branchId,
@@ -346,7 +514,7 @@ export async function POST(request: Request) {
         listingTitle: String(listing.title || "Listing"),
         branchName: branchSnap?.exists ? String(branchSnap.data()?.name || "") : "",
         checkInDate: checkInTs,
-        checkOutDate: null,
+        checkOutDate: checkOutTs,
         scheduledCheckInAt,
         scheduledCheckOutAt,
         slotId: bookingSlot.slotId,
@@ -452,8 +620,11 @@ export async function POST(request: Request) {
     }
     return NextResponse.json(result)
   } catch (error) {
-    if ((error as { name?: string })?.name === "ZodError") {
-      return NextResponse.json({ error: "Invalid booking payload." }, { status: 422 })
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        { error: "Invalid booking payload.", issues: error.flatten() },
+        { status: 422 }
+      )
     }
     const errMessage = error instanceof Error ? error.message : "Unexpected server error"
     if (errMessage === "LISTING_NOT_FOUND") {

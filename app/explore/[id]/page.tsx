@@ -33,6 +33,10 @@ import {
   Check,
 } from "lucide-react"
 import { format, addDays, isBefore, startOfDay, startOfMonth, endOfMonth } from "date-fns"
+import {
+  isRoomBookedForWindow,
+  type PublicBookingWindow,
+} from "@/lib/booking-public-availability"
 import { toast } from "sonner"
 import Link from "next/link"
 import { RoomLayoutMap, type RoomVisualItem } from "@/components/rooms/room-layout-map"
@@ -68,6 +72,8 @@ export default function ListingDetailPage() {
   const [failedImageUrls, setFailedImageUrls] = useState<Record<string, boolean>>({})
   const [touchStartX, setTouchStartX] = useState<number | null>(null)
   const [touchEndX, setTouchEndX] = useState<number | null>(null)
+  /** Time-based occupancy from bookings (public API; Firestore rules block client reads). */
+  const [publicBookings, setPublicBookings] = useState<PublicBookingWindow[]>([])
 
   useEffect(() => {
     async function load() {
@@ -158,6 +164,54 @@ export default function ListingDetailPage() {
   useEffect(() => {
     loadAvailability()
   }, [loadAvailability])
+
+  /** Near real-time: poll booking windows (Admin API). Merge parent + child listing ids for branch room lists. */
+  useEffect(() => {
+    if (!listing || listing.type !== "room") {
+      setPublicBookings([])
+      return
+    }
+    let cancelled = false
+    async function loadPublicBookings() {
+      try {
+        const ids = new Set<string>([listing!.id])
+        const hasInlineRooms =
+          Array.isArray(listing!.roomConfigurations) && listing!.roomConfigurations.length > 0
+        if (!hasInlineRooms && roomListings.length > 0) {
+          roomListings.slice(0, 24).forEach((r) => ids.add(r.id))
+        }
+        const responses = await Promise.all(
+          [...ids].map((lid) =>
+            fetch(`/api/public/listing-availability?listingId=${encodeURIComponent(lid)}`, {
+              cache: "no-store",
+            }).then((r) => (r.ok ? r.json() : { bookings: [] }))
+          )
+        )
+        const merged = new Map<string, PublicBookingWindow>()
+        for (const json of responses) {
+          const rows = (json as { bookings?: PublicBookingWindow[] }).bookings
+          if (!Array.isArray(rows)) continue
+          for (const b of rows) {
+            merged.set(b.id, b)
+          }
+        }
+        if (!cancelled) setPublicBookings([...merged.values()])
+      } catch {
+        if (!cancelled) setPublicBookings([])
+      }
+    }
+    loadPublicBookings()
+    const interval = window.setInterval(loadPublicBookings, 5000)
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadPublicBookings()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [listing, roomListings])
 
   useEffect(() => {
     if (
@@ -310,7 +364,16 @@ export default function ListingDetailPage() {
 
   function handleToggleRoom(roomItem: RoomVisualItem) {
     if (!listing || listing.type !== "room") return
-    if (roomItem.status === "booked" || roomItem.status === "maintenance" || roomItem.status === "blocked") {
+    const bookedVisual =
+      roomItem.status === "booked" ||
+      roomItem.status === "booked_ac" ||
+      roomItem.status === "booked_non_ac" ||
+      roomItem.status === "hall_booked"
+    if (bookedVisual) {
+      toast.error("Already booked for these dates.")
+      return
+    }
+    if (roomItem.status === "maintenance" || roomItem.status === "blocked") {
       return
     }
     setSelectedRoomIds((prev) => {
@@ -371,6 +434,22 @@ export default function ListingDetailPage() {
       if (selectedRoomIds.length === 0) {
         toast.error("Please select at least one room from the layout")
         return
+      }
+      const notSelectable = new Set([
+        "booked",
+        "booked_ac",
+        "booked_non_ac",
+        "hall_booked",
+        "maintenance",
+        "blocked",
+      ])
+      const map = new Map(roomVisualItems.map((r) => [r.id, r]))
+      for (const rid of selectedRoomIds) {
+        const r = map.get(rid)
+        if (r && notSelectable.has(r.status)) {
+          toast.error("One or more selected rooms are no longer available for these dates.")
+          return
+        }
       }
     }
 
@@ -501,9 +580,22 @@ export default function ListingDetailPage() {
       return sorted.map((config) => {
         const roomType = config.roomType === "non_ac" ? "non_ac" : "ac"
         let status: RoomVisualItem["status"] = roomType === "non_ac" ? "available_non_ac" : "available_ac"
+        let bookedUntilLabel: string | undefined
         if (config.status === "maintenance") status = "maintenance"
         else if (config.status === "blocked" || blockedAll) status = "blocked"
-        else if (bookedRoomNumbers.has(String(config.roomNumber).trim())) status = "booked"
+        else if (checkIn && checkOut) {
+          const hit = isRoomBookedForWindow(
+            String(config.roomNumber).trim(),
+            checkIn,
+            checkOut,
+            publicBookings
+          )
+          const lockBooked = bookedRoomNumbers.has(String(config.roomNumber).trim())
+          if (hit.booked || lockBooked) {
+            status = "booked"
+            bookedUntilLabel = hit.untilMs ? format(new Date(hit.untilMs), "PPp") : undefined
+          }
+        }
         return {
           id: `cfg:${config.roomNumber}`,
           roomNumber: String(config.roomNumber),
@@ -511,6 +603,7 @@ export default function ListingDetailPage() {
           price: Number(config.price || listing.pricePerUnit || 0),
           roomType,
           status,
+          bookedUntilLabel,
         }
       })
     }
@@ -522,11 +615,18 @@ export default function ListingDetailPage() {
       let status: RoomVisualItem["status"] =
         room.roomTypeDetail === "non_ac" ? "available_non_ac" : "available_ac"
 
+      let bookedUntilLabel: string | undefined
       if (room.roomStatus === "maintenance") {
         status = "maintenance"
       } else if (room.roomStatus === "blocked") {
         status = "blocked"
       } else if (checkIn && checkOut) {
+        const hit = isRoomBookedForWindow(
+          String(room.roomNumber || "").trim(),
+          checkIn,
+          checkOut,
+          publicBookings
+        )
         let sold = false
         for (let cursor = checkIn; cursor < checkOut; cursor = addDays(cursor, 1)) {
           const key = format(cursor, "yyyy-MM-dd")
@@ -538,7 +638,10 @@ export default function ListingDetailPage() {
             break
           }
         }
-        if (sold) status = "booked"
+        if (hit.booked || sold) {
+          status = "booked"
+          bookedUntilLabel = hit.untilMs ? format(new Date(hit.untilMs), "PPp") : undefined
+        }
       }
 
       return {
@@ -548,9 +651,24 @@ export default function ListingDetailPage() {
         price: Number(room.pricePerUnit || 0),
         roomType: room.roomTypeDetail === "non_ac" ? "non_ac" : "ac",
         status,
+        bookedUntilLabel,
       }
     })
-  }, [listing, roomListings, roomLocksById, selectedDate, selectedCheckOutDate])
+  }, [listing, roomListings, roomLocksById, selectedDate, selectedCheckOutDate, publicBookings])
+
+  const availableRoomUnitsCount = useMemo(() => {
+    if (!listing || listing.type !== "room") return null
+    const blocked = new Set([
+      "booked",
+      "booked_ac",
+      "booked_non_ac",
+      "hall_booked",
+      "maintenance",
+      "blocked",
+    ])
+    if (roomVisualItems.length === 0) return null
+    return roomVisualItems.filter((r) => !blocked.has(r.status)).length
+  }, [listing, roomVisualItems])
 
   const selectedRoomSummary = useMemo(() => {
     if (selectedRoomIds.length === 0) return []
@@ -762,9 +880,11 @@ export default function ListingDetailPage() {
                   <Users className="h-4 w-4 text-primary" />
                   Up to {listing.capacity} guests
                 </div>
-                {listing.inventory > 1 && (
+                {(listing.inventory > 1 || availableRoomUnitsCount !== null) && (
                   <div className="flex items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm">
-                    <span className="font-medium">{listing.inventory}</span>
+                    <span className="font-medium">
+                      {availableRoomUnitsCount !== null ? availableRoomUnitsCount : listing.inventory}
+                    </span>
                     units available
                   </div>
                 )}

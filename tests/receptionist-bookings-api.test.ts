@@ -2,17 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const permissionMock = vi.fn()
 const toHttpErrorMock = vi.fn()
-const sendBookingEmailMock = vi.fn()
 const releaseBookingAvailabilityMock = vi.fn()
 const markReservationsCancelledMock = vi.fn()
 
 vi.mock("@/lib/server/permission-check", () => ({
   requirePermission: permissionMock,
   toHttpError: toHttpErrorMock,
-}))
-
-vi.mock("@/lib/server/booking-email", () => ({
-  sendBookingEmail: sendBookingEmailMock,
 }))
 
 vi.mock("@/lib/server/booking-cancellation", () => ({
@@ -42,7 +37,14 @@ vi.mock("@/lib/server/firebase-admin", () => ({
       if (name === "auditLogs") {
         return { add: auditAddMock }
       }
-      return { doc: () => ({}) }
+      if (name === "settings") {
+        return {
+          doc: () => ({
+            get: vi.fn(async () => ({ exists: true, data: () => ({ refundPolicyRules: [] }) })),
+          }),
+        }
+      }
+      return { doc: () => ({ get: vi.fn(async () => ({ exists: false })) }) }
     }),
   },
 }))
@@ -80,10 +82,9 @@ describe("receptionist bookings API", () => {
     expect(auditAddMock).toHaveBeenCalled()
     expect(releaseBookingAvailabilityMock).toHaveBeenCalledWith("abc", 1)
     expect(markReservationsCancelledMock).toHaveBeenCalledWith("abc")
-    expect(sendBookingEmailMock).toHaveBeenCalledWith("BOOKING_CANCELLED", "abc", expect.any(Object))
   })
 
-  it("prevents checkout before check-in", async () => {
+  it("allows checkout for confirmed bookings (receptionist direct checkout)", async () => {
     permissionMock.mockResolvedValueOnce({ uid: "staff_1" })
     currentBookingData = { status: "confirmed", totalAmount: 1000, advancePaid: 200 }
     const { PATCH } = await import("@/app/api/receptionist/bookings/[id]/route")
@@ -93,11 +94,12 @@ describe("receptionist bookings API", () => {
       headers: { "Content-Type": "application/json" },
     })
     const res = await PATCH(req, { params: Promise.resolve({ id: "abc" }) })
-    expect(res.status).toBe(409)
-    expect(bookingSetMock).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(bookingSetMock).toHaveBeenCalled()
+    expect(releaseBookingAvailabilityMock).toHaveBeenCalledWith("abc", 1)
   })
 
-  it("sends checkout email on successful checkout", async () => {
+  it("releases availability on checkout when checked in", async () => {
     permissionMock.mockResolvedValueOnce({ uid: "staff_1" })
     currentBookingData = {
       status: "checked_in",
@@ -113,6 +115,6 @@ describe("receptionist bookings API", () => {
     })
     const res = await PATCH(req, { params: Promise.resolve({ id: "abc" }) })
     expect(res.status).toBe(200)
-    expect(sendBookingEmailMock).toHaveBeenCalledWith("BOOKING_CHECKOUT", "abc", expect.any(Object))
+    expect(releaseBookingAvailabilityMock).toHaveBeenCalledWith("abc", 1)
   })
 })

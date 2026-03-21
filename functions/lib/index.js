@@ -792,12 +792,65 @@ async function sendConfirmationEmail(invoiceData, bookingData, forceResend = fal
     });
     return "failed";
 }
+/** When no invoice doc exists, build minimal fields used by checkout email templates. */
+function buildSyntheticInvoiceForCheckout(bookingData) {
+    let dateKey = String(bookingData.allocatedResource?.dateKey || "");
+    if (!dateKey && typeof bookingData.checkInDate?.toDate === "function") {
+        try {
+            dateKey = bookingData.checkInDate.toDate().toLocaleDateString("en-IN");
+        }
+        catch {
+            dateKey = "";
+        }
+    }
+    const paid = bookingData.breakdown?.paidAmount ??
+        bookingData.totalAmount ??
+        bookingData.advancePaid ??
+        0;
+    return {
+        customer: {
+            name: String(bookingData.customerName || "Guest"),
+            email: "",
+        },
+        service: { dateKey },
+        breakdown: { paidAmount: Number(paid) },
+        invoiceNumber: String(bookingData.invoiceNumber || ""),
+    };
+}
+async function resolveCheckoutRecipientEmail(bookingData, invoiceData) {
+    if (invoiceData) {
+        const fromInvoice = String(invoiceData.customer?.email || "").trim();
+        if (fromInvoice)
+            return fromInvoice;
+    }
+    const fromBooking = String(bookingData.customerEmail || "").trim();
+    if (fromBooking)
+        return fromBooking;
+    const userId = String(bookingData.userId || "").trim();
+    if (userId) {
+        try {
+            const userSnap = await db.collection("users").doc(userId).get();
+            if (userSnap.exists) {
+                const fromUser = String(userSnap.data()?.email || "").trim();
+                if (fromUser)
+                    return fromUser;
+            }
+        }
+        catch {
+            // ignore lookup errors
+        }
+    }
+    return "";
+}
 async function sendCheckoutEmail(bookingData, invoiceData) {
     const runtimeConfig = await getRuntimeSecureConfig();
     const smtpTransport = await getSmtpTransportFromConfig(runtimeConfig);
     if (!smtpTransport)
         return "pending";
-    const toEmail = String(invoiceData.customer?.email || "");
+    const invoiceForTemplate = invoiceData && Object.keys(invoiceData).length > 0
+        ? invoiceData
+        : buildSyntheticInvoiceForCheckout(bookingData);
+    const toEmail = await resolveCheckoutRecipientEmail(bookingData, invoiceData);
     if (!toEmail)
         return "failed";
     const settingsSnap = await db.collection("settings").doc("global").get();
@@ -805,13 +858,13 @@ async function sendCheckoutEmail(bookingData, invoiceData) {
     const defaultSubject = "Thank You for Choosing Anga Function Hall";
     const defaultBody = "<p>Hello {userName},</p><p>Your event is completed successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Event Date:</strong> {eventDate}</p><p><strong>Checkout Date:</strong> {checkOutAt}</p><p><strong>Total Amount Paid:</strong> INR {paidAmount}</p><p>Thank you for choosing Anga Function Hall.</p>";
     const templateValues = {
-        userName: String(invoiceData.customer?.name || "Guest"),
+        userName: String(invoiceForTemplate.customer?.name || bookingData.customerName || "Guest"),
         bookingId: String(bookingData.id || ""),
-        invoiceNumber: String(bookingData.invoiceNumber || invoiceData.invoiceNumber || ""),
+        invoiceNumber: String(bookingData.invoiceNumber || invoiceForTemplate.invoiceNumber || ""),
         listingName: String(bookingData.listingTitle || ""),
         allocation: String((bookingData.allocatedResource?.labels || []).join(", ")),
-        eventDate: String(invoiceData.service?.dateKey || ""),
-        paidAmount: Number(invoiceData.breakdown?.paidAmount || bookingData.advancePaid || 0).toFixed(2),
+        eventDate: String(invoiceForTemplate.service?.dateKey || ""),
+        paidAmount: Number(invoiceForTemplate.breakdown?.paidAmount ?? bookingData.advancePaid ?? 0).toFixed(2),
         checkOutAt: new Date().toLocaleString("en-IN"),
     };
     const subject = renderTemplate(String(settings.checkoutEmailSubjectTemplate || defaultSubject), templateValues);
@@ -908,10 +961,14 @@ async function sendBookingLifecycleEmail(params) {
     };
     const bodyByEvent = {
         BOOKING_CREATED: "<p>Hello {customerName},</p><p>Your booking request has been created successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Status:</strong> {status}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Check-in:</strong> {checkInDate}</p><p><strong>Check-out:</strong> {checkOutDate}</p><p><strong>Total:</strong> INR {totalAmount}</p><p>Anga Function Hall Team</p>",
-        BOOKING_CONFIRMED: "<p>Hello {customerName},</p><p>Your booking is now confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Check-in:</strong> {checkInDate}</p><p><strong>Check-out:</strong> {checkOutDate}</p><p><strong>Total:</strong> INR {totalAmount}</p><p>For support contact us at Anga Function Hall.</p>",
+        BOOKING_CONFIRMED: "<p>Hello {customerName},</p><p>Your booking is now confirmed.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Room:</strong> {roomNumber}</p><p><strong>Type:</strong> {roomType}</p><p><strong>Floor:</strong> {floor}</p><p><strong>Check-in:</strong> {checkInDate}</p><p><strong>Check-out:</strong> {checkOutDate}</p><p><strong>Total:</strong> INR {totalAmount}</p><p>Thank you for choosing Anga Function Hall.</p>",
         BOOKING_CANCELLED: "<p>Hello {customerName},</p><p>Your booking has been cancelled.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Cancelled At:</strong> {cancelledAt}</p><p><strong>Status:</strong> {status}</p><p>If you need help, please contact Anga Function Hall support.</p>",
-        BOOKING_CHECKOUT: "<p>Hello {customerName},</p><p>Your checkout has been completed successfully.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Venue:</strong> {listingTitle}</p><p><strong>Checkout At:</strong> {checkOutAt}</p><p><strong>Paid Amount:</strong> INR {paidAmount}</p><p>Thank you for choosing Anga Function Hall.</p>",
+        BOOKING_CHECKOUT: "<p>Hello {customerName},</p><p>Thank you for staying at Anga Function Hall.</p><p>We hope you had a great experience.</p><p><strong>Booking ID:</strong> {bookingId}</p><p><strong>Room:</strong> {roomNumber}</p><p><strong>Checkout At:</strong> {checkOutAt}</p><p>Regards,<br/>Anga Function Hall</p>",
     };
+    const roomNums = Array.isArray(booking.selectedRoomNumbers)
+        ? booking.selectedRoomNumbers.map((x) => String(x).trim()).filter(Boolean)
+        : [];
+    const roomNumber = roomNums[0] || String(booking.roomNumber || "");
     const templateValues = {
         customerName,
         bookingId,
@@ -923,6 +980,9 @@ async function sendBookingLifecycleEmail(params) {
         checkOutAt: toDateDisplay(booking.checkOutAt),
         totalAmount: Number(booking.totalAmount || 0).toLocaleString("en-IN"),
         paidAmount: Number(booking.advancePaid || 0).toLocaleString("en-IN"),
+        roomNumber,
+        roomType: String(booking.roomTypeDetail || "") === "non_ac" ? "Non-AC" : "AC",
+        floor: String(booking.roomFloorLabel || ""),
     };
     if (!toEmail) {
         await db.collection("emailLogs").add({
@@ -1033,6 +1093,42 @@ exports.notifyBookingLifecycleEmail = (0, firestore_1.onDocumentWritten)("bookin
         }
     }
 });
+async function releaseBookingAvailabilityForCheckout(bookingId) {
+    const bookingSnap = await db.collection("bookings").doc(bookingId).get();
+    if (!bookingSnap.exists)
+        return;
+    const bookingRoomNumbers = Array.isArray(bookingSnap.data()?.selectedRoomNumbers)
+        ? (bookingSnap.data()?.selectedRoomNumbers)
+            .map((value) => String(value).trim())
+            .filter(Boolean)
+        : [];
+    const locksSnap = await db
+        .collection("availabilityLocks")
+        .where("bookingIds", "array-contains", bookingId)
+        .get();
+    if (locksSnap.empty)
+        return;
+    const batch = db.batch();
+    for (const lockDoc of locksSnap.docs) {
+        const lock = lockDoc.data() || {};
+        const currentIds = Array.isArray(lock.bookingIds) ? lock.bookingIds : [];
+        const nextIds = currentIds.filter((id) => id !== bookingId);
+        const currentBookedUnits = Math.max(0, Number(lock.bookedUnits || 0));
+        const nextBookedUnits = Math.max(0, currentBookedUnits - 1);
+        const nextRoomNumbers = Array.isArray(lock.selectedRoomNumbers)
+            ? lock.selectedRoomNumbers
+                .map((value) => String(value).trim())
+                .filter((room) => room && !bookingRoomNumbers.includes(room))
+            : [];
+        batch.set(lockDoc.ref, {
+            bookingIds: nextIds,
+            bookedUnits: nextBookedUnits,
+            selectedRoomNumbers: nextRoomNumbers,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
+    await batch.commit();
+}
 async function finalizeCheckout(params) {
     const { bookingId, actorId, method, note } = params;
     const bookingRef = db.collection("bookings").doc(bookingId);
@@ -1089,17 +1185,253 @@ async function finalizeCheckout(params) {
             createdBy: actorId,
         });
     });
+    try {
+        await releaseBookingAvailabilityForCheckout(bookingId);
+    }
+    catch (error) {
+        logger.error("releaseBookingAvailabilityForCheckout failed", { bookingId, error });
+    }
+    let invoiceForEmail = null;
     if (bookingData.invoiceId) {
         const invoiceSnap = await db.collection("invoices").doc(String(bookingData.invoiceId)).get();
         if (invoiceSnap.exists) {
-            const checkoutEmailStatus = await sendCheckoutEmail(bookingData, { id: invoiceSnap.id, ...(invoiceSnap.data() || {}) });
-            await bookingRef.set({
-                checkoutEmailStatus,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
+            invoiceForEmail = { id: invoiceSnap.id, ...(invoiceSnap.data() || {}) };
         }
     }
+    try {
+        const checkoutEmailStatus = await sendCheckoutEmail(bookingData, invoiceForEmail);
+        await bookingRef.set({
+            checkoutEmailStatus,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
+    catch (emailError) {
+        logger.error("sendCheckoutEmail failed", { bookingId, error: emailError });
+        await bookingRef.set({
+            checkoutEmailStatus: "failed",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
     return { ok: true, bookingId, status: "checked_out", idempotent: false };
+}
+/**
+ * When scheduled check-in time is reached (and stay not ended), move confirmed → checked_in.
+ * Uses scheduledCheckInAt as checkInAt so "Actual check-in" matches the booking window.
+ */
+function scheduledFieldToMs(value) {
+    if (value == null)
+        return null;
+    // Firestore Timestamp
+    if (typeof value?.toDate === "function") {
+        try {
+            const d = value.toDate();
+            const t = d?.getTime?.();
+            return Number.isFinite(t) ? t : null;
+        }
+        catch {
+            return null;
+        }
+    }
+    if (typeof value === "string") {
+        const d = new Date(value);
+        const t = d?.getTime?.();
+        return Number.isFinite(t) ? t : null;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+        // Handle either ms (e.g. 1710937800000) or seconds (e.g. 1710937800).
+        if (value > 1e10)
+            return value; // ms
+        if (value > 1e9)
+            return value * 1000; // seconds
+        return null;
+    }
+    // JSON-ish timestamp shape: { seconds, nanoseconds } or { _seconds, _nanoseconds }
+    if (typeof value === "object") {
+        const secRaw = value.seconds ?? value._seconds;
+        const nanRaw = value.nanoseconds ?? value._nanoseconds;
+        const sec = typeof secRaw === "string"
+            ? Number(secRaw)
+            : typeof secRaw === "number"
+                ? secRaw
+                : NaN;
+        const nan = typeof nanRaw === "string"
+            ? Number(nanRaw)
+            : typeof nanRaw === "number"
+                ? nanRaw
+                : 0;
+        if (Number.isFinite(sec)) {
+            const ms = sec * 1000 + (Number.isFinite(nan) ? nan / 1e6 : 0);
+            return Number.isFinite(ms) ? ms : null;
+        }
+    }
+    return null;
+}
+async function finalizeAutoCheckIn(bookingId) {
+    const ref = db.collection("bookings").doc(bookingId);
+    await db.runTransaction(async (transaction) => {
+        const snap = await transaction.get(ref);
+        if (!snap.exists)
+            return;
+        const data = snap.data() || {};
+        if (String(data.status) !== "confirmed")
+            return;
+        if (data.checkInAt != null)
+            return;
+        const scheduledInMs = scheduledFieldToMs(data.scheduledCheckInAt) ?? scheduledFieldToMs(data.checkInDate);
+        const scheduledOutMs = scheduledFieldToMs(data.scheduledCheckOutAt) ?? scheduledFieldToMs(data.checkOutDate);
+        if (!scheduledInMs || !scheduledOutMs)
+            return;
+        const now = Date.now();
+        if (scheduledInMs > now)
+            return;
+        if (scheduledOutMs <= now)
+            return;
+        transaction.set(ref, {
+            status: "checked_in",
+            // Prefer scheduled timestamp if it's a real Timestamp, otherwise use server time.
+            checkInAt: typeof data?.scheduledCheckInAt?.toDate === "function"
+                ? data.scheduledCheckInAt
+                : admin.firestore.FieldValue.serverTimestamp(),
+            checkedInBy: "system:auto-check-in",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    });
+    await db.collection("auditLogs").add({
+        entity: "booking",
+        entityId: bookingId,
+        action: "CHECK_IN",
+        message: "AUTO check-in by scheduler",
+        payload: { method: "AUTO" },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: "system:auto-check-in",
+    });
+}
+async function runScheduledAutoCheckIns() {
+    const now = new Date();
+    const snap = await db.collection("bookings").get();
+    const due = snap.docs.filter((docSnap) => {
+        const data = docSnap.data() || {};
+        if (String(data.status) !== "confirmed")
+            return false;
+        if (data.checkInAt != null)
+            return false;
+        const scheduledInMs = scheduledFieldToMs(data.scheduledCheckInAt) ?? scheduledFieldToMs(data.checkInDate);
+        const scheduledOutMs = scheduledFieldToMs(data.scheduledCheckOutAt) ?? scheduledFieldToMs(data.checkOutDate);
+        if (!scheduledInMs || !scheduledOutMs)
+            return false;
+        if (scheduledInMs > now.getTime())
+            return false;
+        if (scheduledOutMs <= now.getTime())
+            return false;
+        return true;
+    });
+    for (const docSnap of due) {
+        try {
+            await finalizeAutoCheckIn(docSnap.id);
+        }
+        catch (error) {
+            logger.error("Auto check-in failed", { bookingId: docSnap.id, error });
+        }
+    }
+}
+async function runScheduledAutoCheckouts() {
+    const now = new Date();
+    const snap = await db.collection("bookings").get();
+    const due = snap.docs.filter((docSnap) => {
+        const data = docSnap.data() || {};
+        const status = String(data.status || "");
+        if (!["confirmed", "checked_in"].includes(status))
+            return false;
+        const scheduledOutMs = scheduledFieldToMs(data.scheduledCheckOutAt) ??
+            scheduledFieldToMs(data.checkOutDate) ??
+            scheduledFieldToMs(data.scheduledCheckOutAt?.toDate?.());
+        if (!scheduledOutMs)
+            return false;
+        return scheduledOutMs <= now.getTime();
+    });
+    for (const docSnap of due) {
+        try {
+            await finalizeCheckout({
+                bookingId: docSnap.id,
+                actorId: "system:auto-checkout",
+                method: "AUTO",
+                note: "Auto checkout by scheduler",
+            });
+        }
+        catch (error) {
+            const errMessage = error instanceof Error ? error.message : String(error);
+            const errStack = error instanceof Error ? error.stack : undefined;
+            logger.error("Auto checkout failed", {
+                bookingId: docSnap.id,
+                errorMessage: errMessage,
+                errorStack: errStack,
+            });
+            // Fallback safety net: prevent stuck checked-in bookings if finalizeCheckout fails
+            // in non-critical follow-up work (e.g., reservation lookup/email).
+            try {
+                const bookingRef = db.collection("bookings").doc(docSnap.id);
+                await bookingRef.set({
+                    status: "checked_out",
+                    checkOutAt: admin.firestore.FieldValue.serverTimestamp(),
+                    checkedOutBy: "system:auto-checkout-fallback",
+                    checkoutMethod: "AUTO",
+                    checkoutNotes: `Fallback auto checkout after error: ${errMessage.slice(0, 300)}`,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true });
+                try {
+                    await releaseBookingAvailabilityForCheckout(docSnap.id);
+                }
+                catch (releaseErr) {
+                    logger.error("Fallback release availability failed", {
+                        bookingId: docSnap.id,
+                        errorMessage: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+                    });
+                }
+                await db.collection("auditLogs").add({
+                    entity: "booking",
+                    entityId: docSnap.id,
+                    action: "CHECKOUT",
+                    message: "AUTO checkout fallback applied",
+                    payload: { errorMessage: errMessage },
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    createdBy: "system:auto-checkout-fallback",
+                });
+                // Same checkout thank-you email as finalizeCheckout (primary path may have failed before this).
+                try {
+                    const freshSnap = await bookingRef.get();
+                    if (freshSnap.exists) {
+                        const fresh = { id: freshSnap.id, ...(freshSnap.data() || {}) };
+                        if (fresh.checkoutEmailStatus !== "sent") {
+                            let invoiceForEmail = null;
+                            if (fresh.invoiceId) {
+                                const invSnap = await db.collection("invoices").doc(String(fresh.invoiceId)).get();
+                                if (invSnap.exists) {
+                                    invoiceForEmail = { id: invSnap.id, ...(invSnap.data() || {}) };
+                                }
+                            }
+                            const checkoutEmailStatus = await sendCheckoutEmail(fresh, invoiceForEmail);
+                            await bookingRef.set({
+                                checkoutEmailStatus,
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            }, { merge: true });
+                        }
+                    }
+                }
+                catch (emailErr) {
+                    logger.error("Fallback auto-checkout email failed", {
+                        bookingId: docSnap.id,
+                        error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+                    });
+                }
+            }
+            catch (fallbackErr) {
+                logger.error("Auto checkout fallback failed", {
+                    bookingId: docSnap.id,
+                    errorMessage: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+                });
+            }
+        }
+    }
 }
 exports.verifyPaymentAndConfirmBooking = (0, https_1.onCall)(async (request) => {
     if (!request.auth?.uid) {
@@ -1691,32 +2023,10 @@ exports.resendCheckoutEmail = (0, https_1.onCall)(async (request) => {
     }, { merge: true });
     return { ok: true, checkoutEmailStatus: status };
 });
-exports.scheduledAutoCheckoutJob = (0, scheduler_1.onSchedule)("every 10 minutes", async () => {
-    const now = new Date();
-    const snap = await db.collection("bookings").get();
-    const due = snap.docs.filter((docSnap) => {
-        const data = docSnap.data() || {};
-        const status = String(data.status || "");
-        if (status !== "checked_in")
-            return false;
-        const scheduled = data.scheduledCheckOutAt?.toDate?.();
-        if (!scheduled)
-            return false;
-        return scheduled.getTime() <= now.getTime();
-    });
-    for (const docSnap of due) {
-        try {
-            await finalizeCheckout({
-                bookingId: docSnap.id,
-                actorId: "system:auto-checkout",
-                method: "AUTO",
-                note: "Auto checkout by scheduler",
-            });
-        }
-        catch (error) {
-            logger.error("Auto checkout failed", { bookingId: docSnap.id, error });
-        }
-    }
+/** Every minute: auto check-in when scheduled window starts, then auto checkout when it ends. */
+exports.scheduledAutoCheckoutJob = (0, scheduler_1.onSchedule)("every 1 minutes", async () => {
+    await runScheduledAutoCheckIns();
+    await runScheduledAutoCheckouts();
 });
 exports.getInvoiceDownloadUrl = (0, https_1.onCall)(async (request) => {
     if (!request.auth?.uid) {

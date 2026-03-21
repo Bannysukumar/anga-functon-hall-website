@@ -39,17 +39,57 @@ export const receptionistBookingsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(300).optional().default(20),
 })
 
-export const createBookingSchema = z.object({
-  customerId: z.string().trim().max(120).optional(),
-  listingId: z.string().trim().min(1).max(120),
-  functionDateTime: z.string().trim().min(1).max(60),
-  selectedRoomNumbers: z.array(z.string().trim().min(1).max(60)).optional(),
-  guestCount: z.coerce.number().int().min(1).max(100000),
-  advanceAmount: z.coerce.number().min(0).max(10_000_000),
-  totalAmount: z.coerce.number().min(1).max(10_000_000),
-  paymentMethod: z.string().trim().min(2).max(40),
-  notes: z.string().trim().max(500).optional().or(z.literal("")),
-})
+/** Normalize JSON body so optional fields don't fail on null / "" (common from forms). */
+function preprocessReceptionistCreateBooking(val: unknown) {
+  if (!val || typeof val !== "object") return val
+  const o = { ...(val as Record<string, unknown>) }
+  const dropIfEmpty = (key: string) => {
+    const v = o[key]
+    if (v === null || v === undefined || v === "") delete o[key]
+  }
+  dropIfEmpty("customerId")
+  dropIfEmpty("checkOutDateTime")
+  dropIfEmpty("selectedRoomNumber")
+  dropIfEmpty("roomType")
+  dropIfEmpty("floor")
+  dropIfEmpty("notes")
+  if (o.notes === null) delete o.notes
+  return o
+}
+
+export const createBookingSchema = z.preprocess(
+  preprocessReceptionistCreateBooking,
+  z.object({
+    customerId: z.string().trim().max(120).optional(),
+    listingId: z.string().trim().min(1).max(120),
+    /** Check-in date/time (ISO or datetime-local compatible) */
+    functionDateTime: z.string().trim().min(1).max(200),
+    /** Check-out date/time; if omitted, defaults from listing/global checkout time on check-out day */
+    checkOutDateTime: z.string().trim().max(200).optional(),
+    /** Filter helpers (room listings): AC / Non-AC */
+    roomType: z.enum(["ac", "non_ac"]).optional(),
+    /** Floor number (1 = 1st floor, etc.) */
+    floor: z.coerce.number().int().min(0).max(100).optional(),
+    selectedRoomNumbers: z.array(z.string().trim().min(1).max(60)).optional(),
+    /** Single room selection (preferred for room listings) */
+    selectedRoomNumber: z.string().trim().min(1).max(60).optional(),
+    guestCount: z.preprocess(
+      (v) => {
+        if (v === "" || v === null || v === undefined) return 1
+        const n = Number(v)
+        return Number.isFinite(n) && n < 1 ? 1 : v
+      },
+      z.coerce.number().int().min(1).max(100000)
+    ),
+    advanceAmount: z.preprocess(
+      (v) => (v === "" || v === null || v === undefined ? 0 : v),
+      z.coerce.number().min(0).max(10_000_000)
+    ),
+    totalAmount: z.coerce.number().min(1).max(10_000_000),
+    paymentMethod: z.string().trim().min(2).max(40),
+    notes: z.string().trim().max(500).optional(),
+  })
+)
 
 export const updateBookingSchema = z.object({
   action: z.enum(["edit", "cancel", "check_in", "check_out"]).default("edit"),
