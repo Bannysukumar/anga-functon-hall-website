@@ -341,14 +341,14 @@ export default function ReceptionistBookingsPage() {
         notes: form.notes,
       }
       if (isRoomListing) {
-        payload.functionDateTime = form.checkInDateTime
-        payload.checkOutDateTime = form.checkOutDateTime
+        payload.functionDateTime = form.checkInDateTime ? format(new Date(form.checkInDateTime), "yyyy-MM-dd'T'HH:mm:ssXXX") : ""
+        payload.checkOutDateTime = form.checkOutDateTime ? format(new Date(form.checkOutDateTime), "yyyy-MM-dd'T'HH:mm:ssXXX") : ""
         if (form.roomType) payload.roomType = form.roomType
         if (form.floor !== "") payload.floor = Number(form.floor)
         payload.selectedRoomNumber = form.selectedRoomNumber
       } else {
-        payload.functionDateTime = form.functionDateTime
-        if (form.checkOutDateTime) payload.checkOutDateTime = form.checkOutDateTime
+        payload.functionDateTime = form.functionDateTime ? format(new Date(form.functionDateTime), "yyyy-MM-dd'T'HH:mm:ssXXX") : ""
+        if (form.checkOutDateTime) payload.checkOutDateTime = format(new Date(form.checkOutDateTime), "yyyy-MM-dd'T'HH:mm:ssXXX")
       }
       const response = await fetch("/api/receptionist/bookings", {
         method: "POST",

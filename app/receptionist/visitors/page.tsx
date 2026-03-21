@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { format } from "date-fns"
 import { PermissionGuard } from "@/components/auth/permission-guard"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -155,7 +156,7 @@ export default function ReceptionistVisitorsPage() {
         },
         body: JSON.stringify({
           listingId: convertForm.listingId,
-          functionDateTime: convertForm.functionDateTime,
+          functionDateTime: convertForm.functionDateTime ? format(new Date(convertForm.functionDateTime), "yyyy-MM-dd'T'HH:mm:ssXXX") : "",
           totalAmount: Number(convertForm.totalAmount || 0),
           advanceAmount: Number(convertForm.advanceAmount || 0),
           guestCount: Number(convertForm.guestCount || 1),
